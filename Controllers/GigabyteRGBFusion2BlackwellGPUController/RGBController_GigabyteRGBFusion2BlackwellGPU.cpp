@@ -395,47 +395,35 @@ void RGBController_RGBFusion2BlackwellGPU::SetupZones()
         leds.push_back(top_led);
     }
 
-    else if(gpu_layout == RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5090D_V2_ICE_LAYOUT)
+    else if(gpu_layout == RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5090D_V2_ICE_LAYOUT ||
+            gpu_layout == RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5080_ICE_LAYOUT)
     {
-        const char * fan_names[] = { "Right Fan", "Left Fan", "Middle Fan" };
-        for(int i = 0; i < 3; i++)
-        {
-            zone fan_zone;
-            fan_zone.name           = fan_names[i];
-            fan_zone.type           = ZONE_TYPE_SINGLE;
-            fan_zone.leds_min       = 1;
-            fan_zone.leds_max       = 1;
-            fan_zone.leds_count     = 1;
-            zones.push_back(fan_zone);
+        const char * zone_names[] = { "Right Fan", "Left Fan", "Middle Fan", "Backplate", "Side Logo" };
 
-            led new_led;
-            new_led.name = fan_names[i];
-            leds.push_back(new_led);
+        /*---------------------------------------------------------*\
+        | The 5080 MASTER ICE swaps the two logo zones relative to  |
+        | the 5090 D V2 MASTER ICE                                  |
+        \*---------------------------------------------------------*/
+        if(gpu_layout == RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5080_ICE_LAYOUT)
+        {
+            zone_names[3] = "Side Logo";
+            zone_names[4] = "Backplate";
         }
 
-        zone backplate;
-        backplate.name          = "Backplate";
-        backplate.type          = ZONE_TYPE_SINGLE;
-        backplate.leds_min      = 1;
-        backplate.leds_max      = 1;
-        backplate.leds_count    = 1;
-        zones.push_back(backplate);
+        for(int i = 0; i < 5; i++)
+        {
+            zone new_zone;
+            new_zone.name           = zone_names[i];
+            new_zone.type           = ZONE_TYPE_SINGLE;
+            new_zone.leds_min       = 1;
+            new_zone.leds_max       = 1;
+            new_zone.leds_count     = 1;
+            zones.push_back(new_zone);
 
-        led bp_led;
-        bp_led.name = "Backplate";
-        leds.push_back(bp_led);
-
-        zone side_logo;
-        side_logo.name          = "Side Logo";
-        side_logo.type          = ZONE_TYPE_SINGLE;
-        side_logo.leds_min      = 1;
-        side_logo.leds_max      = 1;
-        side_logo.leds_count    = 1;
-        zones.push_back(side_logo);
-
-        led sl_led;
-        sl_led.name = "Side Logo";
-        leds.push_back(sl_led);
+            led new_led;
+            new_led.name = zone_names[i];
+            leds.push_back(new_led);
+        }
     }
 
     SetupColors();
@@ -478,6 +466,7 @@ void RGBController_RGBFusion2BlackwellGPU::DeviceUpdateLEDs()
             break;
 
         case RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5090D_V2_ICE_LAYOUT:
+        case RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5080_ICE_LAYOUT:
             gpu_zones = 6;
             break;
 
@@ -508,7 +497,8 @@ void RGBController_RGBFusion2BlackwellGPU::DeviceUpdateLEDs()
             ui_zone_idx = zone_idx - 1; // Map: HW zone 1->UI zone 0, HW zone 2->UI zone 1, HW zone 3->UI zone 2, HW zone 4->UI zone 3
         }
         else if(gpu_layout == RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5080_LAYOUT ||
-                gpu_layout == RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5090D_V2_ICE_LAYOUT)
+                gpu_layout == RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5090D_V2_ICE_LAYOUT ||
+                gpu_layout == RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5080_ICE_LAYOUT)
         {
             if(zone_idx == 5)
             {

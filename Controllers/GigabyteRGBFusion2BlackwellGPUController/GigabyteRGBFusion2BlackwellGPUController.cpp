@@ -72,6 +72,7 @@ void RGBFusion2BlackwellGPUController::SetMode(uint8_t type, uint8_t zone, uint8
         {
             case RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5080_LAYOUT:
             case RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5090D_V2_ICE_LAYOUT:
+            case RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5080_ICE_LAYOUT:
                 currentPos = 11;
                 break;
             default:
@@ -98,6 +99,7 @@ void RGBFusion2BlackwellGPUController::SetZone(uint8_t zone, uint8_t mode, fusio
     switch(gpu_layout)
     {
         case RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5090D_V2_ICE_LAYOUT:
+        case RGB_FUSION2_BLACKWELL_GPU_AORUS_MASTER_5080_ICE_LAYOUT:
             if(mode == RGB_FUSION2_BLACKWELL_GPU_MODE_DIRECT)
                 mode = RGB_FUSION2_BLACKWELL_GPU_MODE_STATIC;
             break;
