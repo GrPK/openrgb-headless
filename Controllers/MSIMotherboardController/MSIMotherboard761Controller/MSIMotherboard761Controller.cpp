@@ -239,21 +239,93 @@ void init_packet(FeaturePacket_Zone_761 * packet)
 
 }
 
+/*---------------------------------------------------------*\
+| The board number in a board name: "MS-7E48" in            |
+| "MSI MEG X870E GODLIKE MAX (MS-7E48)", or empty.          |
+\*---------------------------------------------------------*/
+static std::string board_number(const std::string& board_name)
+{
+    std::size_t open  = board_name.rfind("(MS-");
+    std::size_t close = board_name.rfind(')');
+
+    if(open == std::string::npos || close == std::string::npos || close < open)
+    {
+        return "";
+    }
+
+    return board_name.substr(open + 1, close - open - 1);
+}
+
+static bool same_board_setup(const mystic_light_761_config* a, const mystic_light_761_config* b)
+{
+    return a->numof_onboard_leds == b->numof_onboard_leds
+        && a->numof_pipe1_leds   == b->numof_pipe1_leds
+        && a->numof_pipe2_leds   == b->numof_pipe2_leds
+        && a->numof_JRGBs        == b->numof_JRGBs
+        && a->supported_zones    == b->supported_zones
+        && a->per_led_mode       == b->per_led_mode;
+}
+
+/*---------------------------------------------------------*| The configuration of a board: by its exact name, else by  |
+| its board number. MSI sells versions of one board under   |
+| one number (GODLIKE, GODLIKE MAX, ...), so an unlisted    |
+| version takes the configuration of its listed one. Some   |
+| numbers are shared by boards with different LEDs          |
+| (MS-7E59), so the number alone is used only when every    |
+| listed board with it is set up the same way.              |
+\*---------------------------------------------------------*/
+static const mystic_light_761_config* find_board_config(const std::string& board_name)
+{
+    for(std::size_t i = 0; i < NUM_CONFS; i++)
+    {
+        if(*(board_configs[i].name) == board_name)
+        {
+            return &board_configs[i];
+        }
+    }
+
+    std::string number = board_number(board_name);
+
+    if(number.empty())
+    {
+        return nullptr;
+    }
+
+    const mystic_light_761_config* found = nullptr;
+
+    for(std::size_t i = 0; i < NUM_CONFS; i++)
+    {
+        if(board_number(*(board_configs[i].name)) != number)
+        {
+            continue;
+        }
+
+        if(found == nullptr)
+        {
+            found = &board_configs[i];
+        }
+        else if(!same_board_setup(found, &board_configs[i]))
+        {
+            LOG_INFO("[%s]: not listed, and the listed boards numbered %s differ", board_name.c_str(), number.c_str());
+            return nullptr;
+        }
+    }
+
+    if(found != nullptr)
+    {
+        LOG_INFO("[%s]: not listed, using the configuration of %s (same board number)", board_name.c_str(), found->name->c_str());
+    }
+
+    return found;
+}
+
 MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, const char* path, std::string dev_name)
 {
     dev                                             = handle;
     location                                        = path;
     name                                            = dev_name;
 
-    const mystic_light_761_config * board_config    = nullptr;
-    for(std::size_t i = 0; i < NUM_CONFS; i++)
-    {
-        if(*(board_configs[i].name) == name)
-        {
-            board_config = &board_configs[i];
-            break;
-        }
-    }
+    const mystic_light_761_config * board_config    = find_board_config(name);
 
     if(board_config != nullptr)
     {
