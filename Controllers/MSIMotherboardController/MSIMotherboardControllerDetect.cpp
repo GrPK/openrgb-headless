@@ -210,6 +210,7 @@ REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D75",    DetectMSIMotherboardCont
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D76",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D76,   0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D77",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D77,   0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D78",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D78,   0x0001, 0x00);
+REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D85",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D85,   0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D86",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D86,   0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D88",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D88,   0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D89",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D89,   0x0001, 0x00);

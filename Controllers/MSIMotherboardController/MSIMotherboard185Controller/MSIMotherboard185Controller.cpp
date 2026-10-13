@@ -245,6 +245,19 @@ const std::vector<MSI_ZONE> zones_set21 =
     MSI_ZONE_ON_BOARD_LED_0
 };
 
+/*---------------------------------------------------------*\
+| JRGB, three JARGB_V2 and the onboard LEDs, no JPIPE       |
+| (MEG Z790 GODLIKE)                                        |
+\*---------------------------------------------------------*/
+const std::vector<MSI_ZONE> zones_set22 =
+{
+    MSI_ZONE_J_RGB_1,
+    MSI_ZONE_J_RAINBOW_1,
+    MSI_ZONE_J_RAINBOW_2,
+    MSI_ZONE_J_RAINBOW_3,
+    MSI_ZONE_ON_BOARD_LED_0
+};
+
 
 /*---------------------------------------------------------------------------------------------------------------------------------*\
 | Definition of the board sepcific configurations (number of onboard LEDs and supported zones).                                     |
@@ -330,6 +343,7 @@ static const mystic_light_185_config board_configs[] =
     { 0x7D76, 0,  0,  0, 2, &zones_set13, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // MAG B650M MORTAR WIFI
     { 0x7D77, 0,  0,  0, 2, &zones_set13, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // PRO B650M-A WIFI
     { 0x7D78, 0,  0,  0, 2, &zones_set13, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // PRO B650-P WIFI
+    { 0x7D85, 12, 0,  0, 1, &zones_set22, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // MEG Z790 GODLIKE
     { 0x7D86, 0, 18,  4, 1, &zones_set16, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // MEG Z790 ACE
     { 0x7D88, 0,  0,  0, 1, &zones_set20, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // MPG Z790-S WIFI
     { 0x7D89, 0,  6,  0, 1, &zones_set18, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // MPG Z790 CARBON WIFI
