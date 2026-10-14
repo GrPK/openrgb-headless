@@ -249,9 +249,10 @@ const std::vector<MSI_ZONE> zones_set21 =
 /*---------------------------------------------------------*\
 | MEG Z790 GODLIKE, diagnostic layout: every zone of the    |
 | 185-byte packet the RGB controller can show, to find      |
-| which ones carry the logos. Static colours the dragon     |
-| panel and the GODLIKE letters; the MEG logo answers to    |
-| none of JRGB1, PIPE1/2, JRAINBOW1-3 or onboard so far.    |
+| which ones carry the logos. On 1462:7D85 PIPE1 is the     |
+| dragon panel and PIPE2 the GODLIKE letters. The MEG logo  |
+| and the dots are on none of its zones; the same layout is |
+| used to look for them on the second controller, 0DB0:E777.|
 \*---------------------------------------------------------*/
 const std::vector<MSI_ZONE> zones_set22 =
 {
@@ -375,6 +376,7 @@ static const mystic_light_185_config board_configs[] =
     { 0x7E27, 0,  0,  0, 2, &zones_set13, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // PRO B650M-P
     { 0x7E28, 6,  0,  0, 2, &zones_set21, MSIMotherboard185Controller::DIRECT_MODE_ZONE_BASED,  0 },    // MSI PRO A620M-B (MS-7E28)
     { 0x7E30, 0,  0,  0, 2, &zones_set13, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // B650M GAMING WIFI (MS-7E30)
+    { 0xE777, 9,  1,  1, 2, &zones_set22, MSIMotherboard185Controller::DIRECT_MODE_ZONE_BASED,  0 },    // MEG Z790 GODLIKE second controller (0DB0:E777)
 };
 
 FeaturePacket_185 enable_per_led_msg;
@@ -483,9 +485,9 @@ MSIMotherboard185Controller::MSIMotherboard185Controller(hid_device* handle, con
     \*-----------------------------------------------------*/
     ReadSettings();
 
-    if(pid == 0x7D85)
+    if((pid == 0x7D85) || (pid == 0xE777))
     {
-        LogSettings();
+        LogSettings(pid);
     }
 
     /*-----------------------------------------------------*\
@@ -771,7 +773,7 @@ std::string MSIMotherboard185Controller::GetSerial()
 | from the board (effect, colours, speed/brightness and     |
 | colour flags), to map a board whose layout is unknown.    |
 \*---------------------------------------------------------*/
-void MSIMotherboard185Controller::LogSettings()
+void MSIMotherboard185Controller::LogSettings(unsigned short pid)
 {
     static const struct { const char* name; size_t offset; size_t size; } fields[] =
     {
@@ -792,7 +794,7 @@ void MSIMotherboard185Controller::LogSettings()
         {
             snprintf(hex + 3 * i, 4, "%02X ", raw[field.offset + i]);
         }
-        LOG_INFO("[MSI 185] %-20s effect %3u  colour %02X%02X%02X  bytes %s", field.name, raw[field.offset],
+        LOG_INFO("[MSI 185 %04X] %-20s effect %3u  colour %02X%02X%02X  bytes %s", pid, field.name, raw[field.offset],
                  raw[field.offset + 1], raw[field.offset + 2], raw[field.offset + 3], hex);
     }
 }
@@ -1237,7 +1239,7 @@ bool MSIMotherboard185Controller::ReadFwVersion()
     | Send request and receive response packets             |
     \*-----------------------------------------------------*/
     ret_val &= hid_write(dev, request, 64);
-    ret_val &= hid_read(dev, response, 64);
+    ret_val &= hid_read_timeout(dev, response, 64, 1000);
 
     version_APROM_val = response[2];
 
@@ -1268,7 +1270,7 @@ bool MSIMotherboard185Controller::ReadFwVersion()
     | Send request and receive response packets             |
     \*-----------------------------------------------------*/
     ret_val &= hid_write(dev, request, 64);
-    ret_val &= hid_read(dev, response, 64);
+    ret_val &= hid_read_timeout(dev, response, 64, 1000);
 
     /*-----------------------------------------------------*\
     | Extract high and low values from response             |
