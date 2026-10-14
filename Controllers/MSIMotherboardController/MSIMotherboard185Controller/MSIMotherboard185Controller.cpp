@@ -19,6 +19,7 @@
 #include <array>
 #include <bitset>
 #include "MSIMotherboard185Controller.h"
+#include "LogManager.h"
 #include "StringUtils.h"
 
 using namespace std::chrono_literals;
@@ -246,14 +247,16 @@ const std::vector<MSI_ZONE> zones_set21 =
 };
 
 /*---------------------------------------------------------*\
-| JRGB, three JARGB_V2, the onboard LEDs and both pipe      |
-| channels (MEG Z790 GODLIKE). Diagnostic layout: the pipe  |
-| counts are a guess to find where the logos sit; per-LED   |
-| sync leaves room for 27 LEDs past the 12 onboard ones.    |
+| MEG Z790 GODLIKE, diagnostic layout: every zone of the    |
+| 185-byte packet the RGB controller can show, to find      |
+| which ones carry the logos. Static colours the dragon     |
+| panel and the GODLIKE letters; the MEG logo answers to    |
+| none of JRGB1, PIPE1/2, JRAINBOW1-3 or onboard so far.    |
 \*---------------------------------------------------------*/
 const std::vector<MSI_ZONE> zones_set22 =
 {
     MSI_ZONE_J_RGB_1,
+    MSI_ZONE_J_RGB_2,
     MSI_ZONE_J_RAINBOW_1,
     MSI_ZONE_J_RAINBOW_2,
     MSI_ZONE_J_RAINBOW_3,
@@ -347,7 +350,7 @@ static const mystic_light_185_config board_configs[] =
     { 0x7D76, 0,  0,  0, 2, &zones_set13, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // MAG B650M MORTAR WIFI
     { 0x7D77, 0,  0,  0, 2, &zones_set13, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // PRO B650M-A WIFI
     { 0x7D78, 0,  0,  0, 2, &zones_set13, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // PRO B650-P WIFI
-    { 0x7D85, 12, 14, 13, 1, &zones_set22, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // MEG Z790 GODLIKE
+    { 0x7D85, 9,  1,  1, 1, &zones_set22, MSIMotherboard185Controller::DIRECT_MODE_ZONE_BASED,  0 },    // MEG Z790 GODLIKE
     { 0x7D86, 0, 18,  4, 1, &zones_set16, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // MEG Z790 ACE
     { 0x7D88, 0,  0,  0, 1, &zones_set20, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // MPG Z790-S WIFI
     { 0x7D89, 0,  6,  0, 1, &zones_set18, MSIMotherboard185Controller::DIRECT_MODE_PER_LED,     0 },    // MPG Z790 CARBON WIFI
@@ -479,6 +482,11 @@ MSIMotherboard185Controller::MSIMotherboard185Controller(hid_device* handle, con
     | Read the controller's active configuration data       |
     \*-----------------------------------------------------*/
     ReadSettings();
+
+    if(pid == 0x7D85)
+    {
+        LogSettings();
+    }
 
     /*-----------------------------------------------------*\
     | Initialize per-LED data                               |
@@ -756,6 +764,37 @@ std::string MSIMotherboard185Controller::GetSerial()
     }
 
     return(StringUtils::wstring_to_string(serial_string));
+}
+
+/*---------------------------------------------------------*\
+| Diagnostic: logs every zone of the settings packet read   |
+| from the board (effect, colours, speed/brightness and     |
+| colour flags), to map a board whose layout is unknown.    |
+\*---------------------------------------------------------*/
+void MSIMotherboard185Controller::LogSettings()
+{
+    static const struct { const char* name; size_t offset; size_t size; } fields[] =
+    {
+        { "j_rgb_1",                1, 10 }, { "j_pipe_1",          11, 10 }, { "j_pipe_2",          21, 10 },
+        { "j_rainbow_1",           31, 11 }, { "j_rainbow_2",       42, 11 }, { "j_corsair",         53, 11 },
+        { "j_corsair_outerll120",  64, 10 }, { "on_board_led",      74, 10 }, { "on_board_led_1",    84, 10 },
+        { "on_board_led_2",        94, 10 }, { "on_board_led_3",   104, 10 }, { "on_board_led_4",   114, 10 },
+        { "on_board_led_5",       124, 10 }, { "on_board_led_6",   134, 10 }, { "on_board_led_7",   144, 10 },
+        { "on_board_led_8",       154, 10 }, { "on_board_led_9",   164, 10 }, { "j_rgb_2",          174, 10 },
+    };
+    const unsigned char* raw = (const unsigned char*)&data;
+
+    for(const auto& field : fields)
+    {
+        char hex[3 * 11 + 1] = { 0 };
+
+        for(size_t i = 0; i < field.size; i++)
+        {
+            snprintf(hex + 3 * i, 4, "%02X ", raw[field.offset + i]);
+        }
+        LOG_INFO("[MSI 185] %-20s effect %3u  colour %02X%02X%02X  bytes %s", field.name, raw[field.offset],
+                 raw[field.offset + 1], raw[field.offset + 2], raw[field.offset + 3], hex);
+    }
 }
 
 bool MSIMotherboard185Controller::ReadSettings()

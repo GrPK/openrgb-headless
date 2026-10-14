@@ -146,6 +146,7 @@ private:
     DIRECT_MODE                     per_led_mode;
 
     bool            ReadSettings();
+    void            LogSettings();
     bool            ReadFwVersion();
     ZoneData*       GetZoneData
                         (
