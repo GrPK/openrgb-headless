@@ -337,5 +337,6 @@ private:
     \*-----------------------------------------------------*/
     int                                 accept_select(int sockfd);
     unsigned int                        index_from_id(unsigned int id, unsigned int protocol_version, bool* index_valid);
+    unsigned int                        index_from_id_locked(unsigned int id, unsigned int protocol_version, bool* index_valid);
     int                                 recv_select(SOCKET s, char *buf, int len, int flags);
 };
