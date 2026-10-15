@@ -22,8 +22,8 @@
 #define FURY_BASE_ADDR_DDR4 0x58
 #define FURY_BASE_ADDR_DDR5 0x60
 #define FURY_DELAY std::chrono::milliseconds(10)
-// Settle for per-LED frames; tolerance unconfirmed on hardware.
-#define FURY_FRAME_DELAY std::chrono::milliseconds(3)
+// Settle for per-LED frames.
+#define FURY_FRAME_DELAY std::chrono::milliseconds(10)
 #define FURY_LEDS_PER_DIMM_DDR4 10
 #define FURY_LEDS_PER_DIMM_DDR5 12
 #define FURY_MAX_MODE_COLORS 10
