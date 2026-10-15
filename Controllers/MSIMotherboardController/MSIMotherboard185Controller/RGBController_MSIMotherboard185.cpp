@@ -34,13 +34,11 @@ const ZoneDescription led_zones[] =
     ZoneDescription{ "ONBOARD",   MSI_ZONE_ON_BOARD_LED_0 }
 };
 
-static std::vector<const ZoneDescription*> zone_description;
-
 /*---------------------------------------------------------------------------------------------------------*\
 | Returns the index of the zone_description in led_zones which has zone_type equal to the given zone_type.  |
 | Returns -1 if no such zone_description exists.                                                            |
 \*---------------------------------------------------------------------------------------------------------*/
-static int IndexOfZoneForType(MSI_ZONE zone_type)
+static int IndexOfZoneForType(const std::vector<const ZoneDescription*>& zone_description, MSI_ZONE zone_type)
 {
     for(size_t i = 0; i < zone_description.size(); ++i)
 	{
@@ -306,7 +304,7 @@ void RGBController_MSIMotherboard185::DeviceUpdateSingleLED
         controller->SetDirectMode(true);
     }
 
-    int zone_index = IndexOfZoneForType((MSI_ZONE)leds[led].value);
+    int zone_index = IndexOfZoneForType(zone_description, (MSI_ZONE)leds[led].value);
 
     if(zone_index == -1)
 	{
