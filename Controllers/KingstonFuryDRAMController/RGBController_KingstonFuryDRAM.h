@@ -31,4 +31,7 @@ public:
 private:
     unsigned char               GetRealModeValue();
     KingstonFuryDRAMController* controller;
+    unsigned int                update_count  = 0;
+    double                      update_ms_sum = 0.0;
+    double                      update_ms_max = 0.0;
 };

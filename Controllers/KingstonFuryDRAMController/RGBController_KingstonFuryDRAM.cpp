@@ -13,6 +13,7 @@
 #include "RGBController_KingstonFuryDRAM.h"
 #include "KingstonFuryDRAMController.h"
 #include "LogManager.h"
+#include <chrono>
 
 const RGBColor default_colors[] =
 {
@@ -439,7 +440,10 @@ unsigned char RGBController_KingstonFuryDRAM::GetRealModeValue()
 
 void RGBController_KingstonFuryDRAM::DeviceUpdateLEDs()
 {
-    controller->SendBegin();
+    auto start = std::chrono::steady_clock::now();
+    bool per_led = modes[active_mode].color_mode == MODE_COLORS_PER_LED;
+    std::chrono::milliseconds delay = per_led ? FURY_FRAME_DELAY : FURY_DELAY;
+    controller->SendBegin(delay);
     controller->SetMode(GetRealModeValue());
 
     // Fixed mode specific parameters
@@ -687,7 +691,23 @@ void RGBController_KingstonFuryDRAM::DeviceUpdateLEDs()
     controller->SetRegister(FURY_REG_BRIGHTNESS,
                             modes[active_mode].brightness);
     controller->SetNumSlots();
-    controller->SendApply();
+    controller->SendApply(delay);
+
+    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    update_ms_sum += ms;
+    if(ms > update_ms_max)
+    {
+        update_ms_max = ms;
+    }
+    if(++update_count == 200)
+    {
+        double avg = update_ms_sum / update_count;
+        LOG_INFO("[%s] update avg %.1f ms (%.1f Hz), max %.1f ms over %u updates",
+                 FURY_CONTROLLER_NAME, avg, 1000.0 / avg, update_ms_max, update_count);
+        update_count  = 0;
+        update_ms_sum = 0.0;
+        update_ms_max = 0.0;
+    }
 }
 
 void RGBController_KingstonFuryDRAM::DeviceUpdateZoneLEDs(int /*zone*/)

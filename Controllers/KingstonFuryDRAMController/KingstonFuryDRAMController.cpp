@@ -213,7 +213,7 @@ void KingstonFuryDRAMController::SendPreamble(bool /*synchronize*/)
     SendApply();
 }
 
-void KingstonFuryDRAMController::SendBegin()
+void KingstonFuryDRAMController::SendBegin(std::chrono::milliseconds delay)
 {
     for(std::size_t idx = 0; idx < slots.size(); idx++)
     {
@@ -221,10 +221,10 @@ void KingstonFuryDRAMController::SendBegin()
                   FURY_CONTROLLER_NAME, base_addr + slots[idx]);
         SmbusWrite((int)idx, FURY_REG_APPLY, FURY_BEGIN_TRNSFER);
     }
-    std::this_thread::sleep_for(FURY_DELAY);
+    std::this_thread::sleep_for(delay);
 }
 
-void KingstonFuryDRAMController::SendApply()
+void KingstonFuryDRAMController::SendApply(std::chrono::milliseconds delay)
 {
     for(std::size_t idx = 0; idx < slots.size(); idx++)
     {
@@ -232,7 +232,7 @@ void KingstonFuryDRAMController::SendApply()
                   FURY_CONTROLLER_NAME, base_addr + slots[idx]);
         SmbusWrite((int)idx, FURY_REG_APPLY, FURY_END_TRNSFER);
     }
-    std::this_thread::sleep_for(FURY_DELAY);
+    std::this_thread::sleep_for(delay);
 }
 
 void KingstonFuryDRAMController::SetMode(unsigned char val)
@@ -349,10 +349,10 @@ void KingstonFuryDRAMController::SetLEDColors(std::vector<RGBColor> colors)
         }
     }
 
-    // One settle delay for the whole frame instead of one per register.
+    // One settle delay for the whole frame, before the apply.
     if(write_occurred)
     {
-        std::this_thread::sleep_for(FURY_DELAY);
+        std::this_thread::sleep_for(FURY_FRAME_DELAY);
     }
 }
 
