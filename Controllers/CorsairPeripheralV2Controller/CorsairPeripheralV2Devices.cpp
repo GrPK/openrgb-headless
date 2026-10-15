@@ -1593,6 +1593,29 @@ static const corsair_v2_device m75_wireless_device =
 };
 
 /*-------------------------------------------------------------*\
+|  Corsair M75 Wireless 1B1C:2B08                               |
+|                                                               |
+|  A second M75 Wireless PID, reported through the Slipstream   |
+|  receiver 1B1C:1BDC. Same zones as 1B1C:1BF1.                 |
+\*-------------------------------------------------------------*/
+static const corsair_v2_device m75_wireless_2_device =
+{
+    CORSAIR_M75_WIRELESS_PID2,
+    DEVICE_TYPE_MOUSE,
+    1,
+    2,
+    {
+        &m75_logo_zone,
+        &m75_wireless_bottom_zone,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr
+    },
+    nullptr
+};
+
+/*-------------------------------------------------------------*\
 |  Corsair Scimitar Elite RGB 1B1C:1BE3                         |
 |                                                               |
 |  A later revision of the Scimitar Elite RGB (1B1C:1B8B) that  |
@@ -1781,6 +1804,7 @@ const corsair_v2_device* corsair_v2_device_list_data[] =
     &m65_ultra_rgb_device,
     &m75_device,
     &m75_wireless_device,
+    &m75_wireless_2_device,
     &scimitar_elite_v2_device,
 
 /*-----------------------------------------------------------------*\
