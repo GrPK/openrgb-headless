@@ -18,6 +18,19 @@
 #include "RoccatVulcanKeyboardController.h"
 #include "StringUtils.h"
 
+static const char* ROCCATVULCANKEYBOARD = "Roccat Vulcan Keyboard";
+
+#define ROCCAT_VULCAN_II_MINI_LED_COUNT 69
+
+static const uint8_t roccat_vulcan_ii_mini_slot_map[ROCCAT_VULCAN_II_MINI_LED_COUNT] =
+{
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+    18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
+    34, 35, 36, 37, 38, 39, 40, 42, 43, 45, 46, 48, 49, 50, 51,
+    52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 64, 65, 66, 68,
+    70, 71, 72, 73, 74, 75, 76
+};
+
 RoccatVulcanKeyboardController::RoccatVulcanKeyboardController(hid_device* dev_ctrl_handle, hid_device* dev_led_handle, char *path, uint16_t pid, std::string dev_name)
 {
     dev_ctrl    = dev_ctrl_handle;
@@ -69,6 +82,7 @@ device_info RoccatVulcanKeyboardController::InitDeviceInfo()
         case ROCCAT_VULCAN_PRO_PID:
         case ROCCAT_VULCAN_TKL_PRO_PID:
         case ROCCAT_VULCAN_II_PID:
+        case ROCCAT_VULCAN_II_MINI_PID:
         case ROCCAT_VULCAN_II_MAX_PID:
         case TURTLE_BEACH_VULCAN_II_PID:
         case TURTLE_BEACH_VULCAN_II_TKL_PRO_PID:
@@ -119,14 +133,16 @@ device_info RoccatVulcanKeyboardController::InitDeviceInfo()
         if(res >= 7)
         {
             dev_info.layout_type = buf[6];
-            LOG_DEBUG("[Roccat Vulcan Keyboard]: Detected layout '0x%02X'", buf[6]);
+            LOG_DEBUG("[%s]: Detected layout '0x%02X'", ROCCATVULCANKEYBOARD, buf[6]);
         }
         else
         {
             dev_info.layout_type = ROCCAT_VULCAN_LAYOUT_US;
-            LOG_DEBUG("[Roccat Vulcan Keyboard]: Failed to detect layout, falling back to US");
+            LOG_DEBUG("[%s]: Failed to detect layout, falling back to US", ROCCATVULCANKEYBOARD);
         }
     }
+    LOG_INFO("[%s]: %s: firmware %s, layout 0x%02X", ROCCATVULCANKEYBOARD, name.c_str(), dev_info.version.c_str(), dev_info.layout_type);
+
     delete[] buf;
     return dev_info;
 }
@@ -138,12 +154,19 @@ device_info RoccatVulcanKeyboardController::GetDeviceInfo()
 
 bool RoccatVulcanKeyboardController::IsBigEndianDirectMode()
 {
-    return (dev_info.version_major >= 1 && dev_info.version_minor >= 16);
+    switch(device_pid)
+    {
+        case ROCCAT_VULCAN_II_MINI_PID:
+            return false;
+        default:
+            return (dev_info.version_major >= 1 && dev_info.version_minor >= 16);
+    }
 }
 
 void RoccatVulcanKeyboardController::EnableDirect(bool on_off_switch)
 {
     uint8_t* buf;
+    int res;
     switch(device_pid)
     {
         case ROCCAT_PYRO_PID:
@@ -152,17 +175,23 @@ void RoccatVulcanKeyboardController::EnableDirect(bool on_off_switch)
         case ROCCAT_VULCAN_PRO_PID:
         case ROCCAT_VULCAN_TKL_PRO_PID:
         case ROCCAT_VULCAN_II_PID:
+        case ROCCAT_VULCAN_II_MINI_PID:
         case ROCCAT_VULCAN_II_MAX_PID:
         case TURTLE_BEACH_VULCAN_II_PID:
         case TURTLE_BEACH_VULCAN_II_TKL_PRO_PID:
             buf = new uint8_t[5] { 0x0E, 0x05, on_off_switch, 0x00, 0x00 };
-            hid_send_feature_report(dev_ctrl, buf, 5);
+            res = hid_send_feature_report(dev_ctrl, buf, 5);
             break;
         default:
             buf = new uint8_t[3] { 0x15, 0x00, on_off_switch };
-            hid_send_feature_report(dev_ctrl, buf, 3);
+            res = hid_send_feature_report(dev_ctrl, buf, 3);
     }
     delete[] buf;
+
+    if(res < 0)
+    {
+        LOG_ERROR("[%s]: %s: failed to send direct mode %s report", ROCCATVULCANKEYBOARD, name.c_str(), on_off_switch ? "enable" : "disable");
+    }
 }
 
 void RoccatVulcanKeyboardController::SendColors(std::vector<led_color> colors)
@@ -198,6 +227,11 @@ void RoccatVulcanKeyboardController::SendColors(std::vector<led_color> colors)
         break;
     case ROCCAT_VULCAN_II_MAX_PID:
         packet_length = 567;
+        column_length = 1;
+        protocol_version = 2;
+        break;
+    case ROCCAT_VULCAN_II_MINI_PID:
+        packet_length = 345;
         column_length = 1;
         protocol_version = 2;
         break;
@@ -312,8 +346,20 @@ void RoccatVulcanKeyboardController::SendColors(std::vector<led_color> colors)
 
         else
         {
-            int column  = (int)(floor(colors[i].value / column_length));
-            int row     = colors[i].value % column_length;
+            unsigned int led_index = colors[i].value;
+
+            if(device_pid == ROCCAT_VULCAN_II_MINI_PID)
+            {
+                if(led_index >= ROCCAT_VULCAN_II_MINI_LED_COUNT)
+                {
+                    continue;
+                }
+
+                led_index = roccat_vulcan_ii_mini_slot_map[led_index];
+            }
+
+            int column  = (int)(floor(led_index / column_length));
+            int row     = led_index % column_length;
 
             if(protocol_version == 1)
             {
@@ -341,7 +387,10 @@ void RoccatVulcanKeyboardController::SendColors(std::vector<led_color> colors)
 
     for(int p = 0; p < packet_num; p++)
     {
-        hid_write(dev_led, &bufs[p][0], 65);
+        if(hid_write(dev_led, &bufs[p][0], 65) < 0)
+        {
+            LOG_ERROR("[%s]: %s: failed to send color frame packet %d", ROCCATVULCANKEYBOARD, name.c_str(), p);
+        }
     }
 
     ClearResponses();
@@ -385,6 +434,11 @@ void RoccatVulcanKeyboardController::SendMode(unsigned int mode, unsigned int sp
         case ROCCAT_VULCAN_II_MAX_PID:
             protocol_version = 2;
             packet_length = 542;
+            column_length = 1;
+            break;
+        case ROCCAT_VULCAN_II_MINI_PID:
+            protocol_version = 2;
+            packet_length = 332;
             column_length = 1;
             break;
         case TURTLE_BEACH_VULCAN_II_TKL_PRO_PID:
@@ -435,6 +489,12 @@ void RoccatVulcanKeyboardController::SendMode(unsigned int mode, unsigned int sp
         buf[5 + offset] = 0x00;
     }
 
+    if(device_pid == ROCCAT_VULCAN_II_MINI_PID)
+    {
+        buf[0 + offset] = 0x02;
+        buf[4 + offset] = 0xFB;
+    }
+
     if(device_pid == TURTLE_BEACH_VULCAN_II_TKL_PRO_PID)
     {
         buf[0 + offset] = 0x03;
@@ -478,8 +538,20 @@ void RoccatVulcanKeyboardController::SendMode(unsigned int mode, unsigned int sp
         }
         else
         {
-            int column  = (int)(floor(colors[i].value / column_length));
-            int row     = colors[i].value % column_length;
+            unsigned int led_index = colors[i].value;
+
+            if(device_pid == ROCCAT_VULCAN_II_MINI_PID)
+            {
+                if(led_index >= ROCCAT_VULCAN_II_MINI_LED_COUNT)
+                {
+                    continue;
+                }
+
+                led_index = roccat_vulcan_ii_mini_slot_map[led_index];
+            }
+
+            int column  = (int)(floor(led_index / column_length));
+            int row     = led_index % column_length;
             int pos = column * 3 * column_length + row + 9;
 
             if(pos + (2 * column_length) < packet_length - 2)
@@ -499,7 +571,39 @@ void RoccatVulcanKeyboardController::SendMode(unsigned int mode, unsigned int sp
     buf[packet_length - 2] = total & 0xFF;
     buf[packet_length - 1] = total >> 8;
 
-    hid_send_feature_report(dev_ctrl, buf, packet_length);
+    if(hid_send_feature_report(dev_ctrl, buf, packet_length) < 0)
+    {
+        LOG_ERROR("[%s]: %s: failed to send mode report", ROCCATVULCANKEYBOARD, name.c_str());
+    }
+
+    /*---------------------------------------------------------*\
+    | The Vulcan II Mini only commits a static 0x11 report      |
+    | while the 0x13 keepalive is being sent.                   |
+    \*---------------------------------------------------------*/
+    if(device_pid == ROCCAT_VULCAN_II_MINI_PID && mode == ROCCAT_VULCAN_MODE_STATIC)
+    {
+        uint8_t keepalive[123];
+        memset(keepalive, 0x00, sizeof(keepalive));
+        keepalive[0]          = 0x13;
+        keepalive[1]          = 0x7B;   /* 123 bytes */
+        keepalive[2]          = 0x1E;   /* 30 four-byte entries */
+        keepalive[3 + 4 * 4]  = 0xA4;
+        keepalive[3 + 4 * 5]  = 0xA5;
+        keepalive[3 + 4 * 16] = 0xB0;
+        keepalive[3 + 4 * 22] = 0xB6;
+
+        WaitUntilReady();
+
+        for(int i = 0; i < 3; i++)
+        {
+            if(hid_send_feature_report(dev_ctrl, keepalive, sizeof(keepalive)) < 0)
+            {
+                LOG_ERROR("[%s]: %s: failed to send keepalive report", ROCCATVULCANKEYBOARD, name.c_str());
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        }
+    }
 
     delete[] buf;
 }
@@ -522,6 +626,7 @@ void RoccatVulcanKeyboardController::WaitUntilReady()
     }
 
     uint8_t* buf = new uint8_t[packet_length];
+    memset(buf, 0x00, packet_length);
 
     buf[0] = 0x04;
 
@@ -533,6 +638,11 @@ void RoccatVulcanKeyboardController::WaitUntilReady()
         }
 
         hid_get_feature_report(dev_ctrl, buf, packet_length);
+    }
+
+    if(buf[1] != 1)
+    {
+        LOG_WARNING("[%s]: %s: device did not report ready", ROCCATVULCANKEYBOARD, name.c_str());
     }
 
     delete[] buf;

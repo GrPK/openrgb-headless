@@ -14,9 +14,10 @@
 #   run only if manually started to save CI minutes if      #
 #   GitLab hosted runners                                   #
 # * For commits to the CalcProgrammer1/OpenRGB repository,  #
-#   automatically run all jobs on the default branch,       #
-#   otherwise run them if the source is part of a merge     #
-#   request                                                 #
+#   automatically run all jobs on the default branch or     #
+#   tag builds, otherwise run them if the source is part    #
+#   of a merge request                                      #
+# * Qt5 builds are always manually triggered, not automatic #
 #-----------------------------------------------------------#
 .downstream_rules:
   rules:
@@ -26,8 +27,15 @@
 
 .upstream_rules:
   rules:
-  - if: '$CI_PROJECT_PATH == "CalcProgrammer1/OpenRGB" && ($CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_PIPELINE_SOURCE == "merge_request_event")'
+  - if: '$CI_PROJECT_PATH == "CalcProgrammer1/OpenRGB" && ($CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG || $CI_PIPELINE_SOURCE == "merge_request_event")'
     when: on_success
+  - !reference [.downstream_rules, rules]
+
+.qt5_rules:
+  rules:
+  - if: '$CI_PROJECT_PATH == "CalcProgrammer1/OpenRGB" && ($CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG || $CI_PIPELINE_SOURCE == "merge_request_event")'
+    when: manual
+    allow_failure: true
   - !reference [.downstream_rules, rules]
 
 .shared_windows_runners:
@@ -51,7 +59,7 @@ before_script:
 # Supported Devices Build Target                            #
 #-----------------------------------------------------------#
 "Supported Devices":
-  image: registry.gitlab.com/openrgbdevelopers/openrgb-linux-ci-deb-builder:bookworm-amd64
+  image: registry.gitlab.com/openrgbdevelopers/openrgb-linux-ci-deb-builder:trixie-amd64
   tags:
   - linux
   - amd64
@@ -71,10 +79,10 @@ before_script:
     - !reference [.upstream_rules, rules]
 
 #-----------------------------------------------------------#
-# OpenRGB Common Appimage Build Steps                       #
+# OpenRGB Common AppImage Build Steps                       #
 #-----------------------------------------------------------#
 .hidden_appimage_script: &appimage_script_steps
-  image: registry.gitlab.com/openrgbdevelopers/openrgb-linux-ci-deb-builder:bookworm-${TGT_ARCH}
+  image: registry.gitlab.com/openrgbdevelopers/openrgb-linux-ci-deb-builder:trixie-${TGT_ARCH}
   tags:
   - linux
   - ${TGT_ARCH}
@@ -87,8 +95,6 @@ before_script:
     name: "${CI_PROJECT_NAME}_Linux_${TGT_NAME}_${CI_COMMIT_SHORT_SHA}"
     paths:
     - OpenRGB-${TGT_PATH}.AppImage
-    - 60-openrgb.rules
-    - README.md
     expire_in: 30 days
 
   rules:
@@ -100,21 +106,23 @@ before_script:
 "Linux i386 AppImage":
   variables:
     TGT_ARCH: "i386"
-    TGT_QT: ""
+    TGT_QT: "qt6"
     TGT_NAME: "${TGT_ARCH}"
     TGT_PATH: "${TGT_ARCH}"
   <<: *appimage_script_steps
 
 #-----------------------------------------------------------#
-# Linux (AppImage) Qt6 i386 Build Target                    #
+# Linux (AppImage) Qt5 i386 Build Target                    #
 #-----------------------------------------------------------#
-"Linux i386 AppImage Qt6":
+"Linux i386 AppImage Qt5":
   variables:
     TGT_ARCH: "i386"
-    TGT_QT: "qt6"
-    TGT_NAME: "${TGT_ARCH}_${TGT_QT^}"
+    TGT_QT: ""
+    TGT_NAME: "${TGT_ARCH}_qt5"
     TGT_PATH: "${TGT_ARCH}"
   <<: *appimage_script_steps
+  rules:
+  - !reference [.qt5_rules, rules]
 
 #-----------------------------------------------------------#
 # Linux (AppImage) amd64 Build Target                       #
@@ -122,7 +130,7 @@ before_script:
 "Linux amd64 AppImage":
   variables:
     TGT_ARCH: "amd64"
-    TGT_QT: ""
+    TGT_QT: "qt6"
     TGT_NAME: "${TGT_ARCH}"
     TGT_PATH: "x86_64"
   <<: *appimage_script_steps
@@ -137,15 +145,17 @@ before_script:
   - "saas-linux-small-amd64"
 
 #-----------------------------------------------------------#
-# Linux (AppImage) Qt6 amd64 Build Target                   #
+# Linux (AppImage) Qt5 amd64 Build Target                   #
 #-----------------------------------------------------------#
-"Linux amd64 AppImage Qt6":
+"Linux amd64 AppImage Qt5":
   variables:
     TGT_ARCH: "amd64"
-    TGT_QT: "qt6"
-    TGT_NAME: "${TGT_ARCH}_${TGT_QT^}"
+    TGT_QT: ""
+    TGT_NAME: "${TGT_ARCH}_qt5"
     TGT_PATH: "x86_64"
   <<: *appimage_script_steps
+  rules:
+  - !reference [.qt5_rules, rules]
 
 #-----------------------------------------------------------#
 # Linux (AppImage) armhf Build Target                       #
@@ -153,21 +163,23 @@ before_script:
 "Linux armhf AppImage":
   variables:
     TGT_ARCH: "armhf"
-    TGT_QT: ""
+    TGT_QT: "qt6"
     TGT_NAME: "${TGT_ARCH}"
     TGT_PATH: "${TGT_ARCH}"
   <<: *appimage_script_steps
 
 #-----------------------------------------------------------#
-# Linux (AppImage) Qt6 armhf Build Target                   #
+# Linux (AppImage) Qt5 armhf Build Target                   #
 #-----------------------------------------------------------#
-"Linux armhf AppImage Qt6":
+"Linux armhf AppImage Qt5":
   variables:
     TGT_ARCH: "armhf"
-    TGT_QT: "qt6"
-    TGT_NAME: "${TGT_ARCH}_${TGT_QT^}"
+    TGT_QT: ""
+    TGT_NAME: "${TGT_ARCH}_qt5"
     TGT_PATH: "${TGT_ARCH}"
   <<: *appimage_script_steps
+  rules:
+  - !reference [.qt5_rules, rules]
 
 #-----------------------------------------------------------#
 # Linux (AppImage) arm64 Build Target                       #
@@ -175,21 +187,23 @@ before_script:
 "Linux arm64 AppImage":
   variables:
     TGT_ARCH: "arm64"
-    TGT_QT: ""
+    TGT_QT: "qt6"
     TGT_NAME: "${TGT_ARCH}"
     TGT_PATH: "${TGT_ARCH}"
   <<: *appimage_script_steps
 
 #-----------------------------------------------------------#
-# Linux (AppImage) Qt6 arm64 Build Target                   #
+# Linux (AppImage) Qt5 arm64 Build Target                   #
 #-----------------------------------------------------------#
-"Linux arm64 AppImage Qt6":
+"Linux arm64 AppImage Qt5":
   variables:
     TGT_ARCH: "arm64"
-    TGT_QT: "qt6"
-    TGT_NAME: "${TGT_ARCH}_${TGT_QT^}"
+    TGT_QT: ""
+    TGT_NAME: "${TGT_ARCH}_qt5"
     TGT_PATH: "${TGT_ARCH}"
   <<: *appimage_script_steps
+  rules:
+  - !reference [.qt5_rules, rules]
 
 #-----------------------------------------------------------#
 # OpenRGB Common Debian Build Steps                         #
@@ -290,13 +304,16 @@ before_script:
   <<: *debian_script_steps
 
 #-----------------------------------------------------------#
-# Linux (.rpm, F43) 64-bit Build Target                     #
+# Linux (.rpm) Fedora 44 amd64 Build Target                 #
 #-----------------------------------------------------------#
-"Linux 64 F43 rpm":
-  image: fedora:43
+"Linux amd64 .rpm (Fedora 44)":
+  image: fedora:44
   stage: build
   script:
-  - dnf install rpmdevtools dnf-plugins-core libcurl-devel qt5-qtbase-devel git -y
+  - dnf install rpmdevtools dnf-plugins-core libcurl-devel qt6-qtbase-devel git wget -y
+  - 'wget -O hidapi-hotplug.zip https://gitlab.com/OpenRGBDevelopers/hidapi-hotplug/-/jobs/artifacts/master/download?job=Linux+64+F43+rpm'
+  - unzip hidapi-hotplug.zip
+  - dnf install ./*.rpm -y
   - rpmdev-setuptree
   - ./scripts/build-package-files.sh fedora/OpenRGB.spec
   - cp fedora/OpenRGB.spec /root/rpmbuild/SPECS
@@ -309,7 +326,7 @@ before_script:
   - cd ${CI_PROJECT_DIR}
 
   artifacts:
-    name: "${CI_PROJECT_NAME}_Linux_64_rpm_${CI_COMMIT_SHORT_SHA}"
+    name: "${CI_PROJECT_NAME}_Linux_amd64_rpm_${CI_COMMIT_SHORT_SHA}"
     paths:
     - openrgb*.rpm
     expire_in: 30 days
@@ -318,16 +335,58 @@ before_script:
     - !reference [.upstream_rules, rules]
 
 #-----------------------------------------------------------#
+# OpenRGB Common Flatpak Build Steps                        #
+#-----------------------------------------------------------#
+.hidden_flatpak_script: &flatpak_script_steps
+  image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10
+  stage: build
+  tags:
+  - linux
+  - ${TGT_ARCH}
+  script:
+  - flatpak-builder --user --disable-rofiles-fuse --repo=build/repo build/flatpak-build flatpak/org.openrgb.OpenRGB.yaml
+  - flatpak build-bundle build/repo org.openrgb.OpenRGB.flatpak org.openrgb.OpenRGB
+
+  artifacts:
+    name: "${CI_PROJECT_NAME}_Linux_${TGT_ARCH}_Flatpak_${CI_COMMIT_SHORT_SHA}"
+    paths:
+    - org.openrgb.OpenRGB.flatpak
+    expire_in: 30 days
+
+  rules:
+    - !reference [.upstream_rules, rules]
+
+#-----------------------------------------------------------#
+# Linux Flatpak amd64 Build Target                          #
+#-----------------------------------------------------------#
+"Linux amd64 Flatpak":
+  variables:
+    TGT_ARCH: "amd64"
+  <<: *flatpak_script_steps
+
+#-----------------------------------------------------------#
+# Linux Flatpak arm64 Build Target                          #
+#-----------------------------------------------------------#
+"Linux arm64 Flatpak":
+  variables:
+    TGT_ARCH: "arm64"
+  <<: *flatpak_script_steps
+
+#-----------------------------------------------------------#
 # Debian i386 Bookworm test                                 #
 #-----------------------------------------------------------#
 "Debian i386 Bookworm":
   image: i386/debian:bookworm
   stage: test
   script:
-  - apt update
+  - DEBIAN_FRONTEND=noninteractive apt update
+  - DEBIAN_FRONTEND=noninteractive apt install -y unzip curl
+  - 'curl -o hidapi-hotplug.zip -L https://gitlab.com/OpenRGBDevelopers/hidapi-hotplug/-/jobs/artifacts/master/download?job=Linux+i386+.deb+%28Debian+Bookworm%29'
+  - unzip hidapi-hotplug.zip
+  - DEBIAN_FRONTEND=noninteractive apt install -yq --no-install-recommends ./libhidapi-hotplug*.deb
   - DEBIAN_FRONTEND=noninteractive apt install -yq --no-install-recommends ./openrgb*i386.deb
   - openrgb --version
-  - apt remove -y openrgb
+  - DEBIAN_FRONTEND=noninteractive apt remove -y openrgb
   dependencies:
   - "Linux i386 .deb (Debian Bookworm)"
   needs:
@@ -342,10 +401,14 @@ before_script:
   image: amd64/debian:bookworm
   stage: test
   script:
-  - apt update
+  - DEBIAN_FRONTEND=noninteractive apt update
+  - DEBIAN_FRONTEND=noninteractive apt install -y unzip curl
+  - 'curl -o hidapi-hotplug.zip -L https://gitlab.com/OpenRGBDevelopers/hidapi-hotplug/-/jobs/artifacts/master/download?job=Linux+amd64+.deb+%28Debian+Bookworm%29'
+  - unzip hidapi-hotplug.zip
+  - DEBIAN_FRONTEND=noninteractive apt install -yq --no-install-recommends ./libhidapi-hotplug*.deb
   - DEBIAN_FRONTEND=noninteractive apt install -yq --no-install-recommends ./openrgb*amd64.deb
   - openrgb --version
-  - apt remove -y openrgb
+  - DEBIAN_FRONTEND=noninteractive apt remove -y openrgb
   dependencies:
   - "Linux amd64 .deb (Debian Bookworm)"
   needs:
@@ -360,10 +423,14 @@ before_script:
   image: ubuntu:noble
   stage: test
   script:
-  - apt update
+  - DEBIAN_FRONTEND=noninteractive apt update
+  - DEBIAN_FRONTEND=noninteractive apt install -y unzip curl
+  - 'curl -o hidapi-hotplug.zip -L https://gitlab.com/OpenRGBDevelopers/hidapi-hotplug/-/jobs/artifacts/master/download?job=Linux+amd64+.deb+%28Debian+Bookworm%29'
+  - unzip hidapi-hotplug.zip
+  - DEBIAN_FRONTEND=noninteractive apt install -yq --no-install-recommends ./libhidapi-hotplug*.deb
   - DEBIAN_FRONTEND=noninteractive apt install -yq --no-install-recommends ./openrgb*amd64.deb
   - openrgb --version
-  - apt remove -y openrgb
+  - DEBIAN_FRONTEND=noninteractive apt remove -y openrgb
   dependencies:
   - "Linux amd64 .deb (Debian Bookworm)"
   needs:
@@ -372,19 +439,23 @@ before_script:
   - !reference [.upstream_rules, rules]
 
 #-----------------------------------------------------------#
-# Fedora 64 v43 test                                        #
+# Fedora amd64 44 test                                      #
 #-----------------------------------------------------------#
-"Fedora 64 v43":
-  image: fedora:43
+"Fedora 64 44":
+  image: fedora:44
   stage: test
   script:
+  - dnf install unzip wget -y
+  - 'wget -O hidapi-hotplug.zip https://gitlab.com/OpenRGBDevelopers/hidapi-hotplug/-/jobs/artifacts/master/download?job=Linux+64+F43+rpm'
+  - unzip hidapi-hotplug.zip
+  - dnf install ./*.rpm -y
   - dnf5 -y install ./openrgb*64.rpm
   - openrgb --version
   - dnf5 -y remove openrgb
   dependencies:
-  - "Linux 64 F43 rpm"
+  - "Linux amd64 .rpm (Fedora 44)"
   needs:
-  - "Linux 64 F43 rpm"
+  - "Linux amd64 .rpm (Fedora 44)"
   rules:
   - !reference [.upstream_rules, rules]
 
@@ -397,7 +468,7 @@ before_script:
   stage: build
   script:
   - $ErrorActionPreference = "SilentlyContinue" ; Set-MpPreference -DisableRealtimeMonitoring $true ; $ErrorActionPreference = "Stop"
-  - scripts\build-windows.bat 5.15.0 2019 32
+  - scripts\build-windows.bat 6.8.3 2022 32
   artifacts:
     name: "${CI_PROJECT_NAME}_Windows_32_${CI_COMMIT_SHORT_SHA}"
     paths:
@@ -410,17 +481,17 @@ before_script:
     - !reference [.upstream_rules, rules]
 
 #-----------------------------------------------------------#
-# Windows (32-bit) Qt6 Build Target                         #
+# Windows (32-bit) Qt5 Build Target                         #
 #-----------------------------------------------------------#
-"Windows 32 Qt6":
+"Windows 32 Qt5":
   extends:
   - .shared_windows_runners
   stage: build
   script:
   - $ErrorActionPreference = "SilentlyContinue" ; Set-MpPreference -DisableRealtimeMonitoring $true ; $ErrorActionPreference = "Stop"
-  - scripts\build-windows.bat 6.8.3 2022 32
+  - scripts\build-windows.bat 5.15.0 2019 32
   artifacts:
-    name: "${CI_PROJECT_NAME}_Windows_32_Qt6_${CI_COMMIT_SHORT_SHA}"
+    name: "${CI_PROJECT_NAME}_Windows_32_Qt5_${CI_COMMIT_SHORT_SHA}"
     paths:
     - 'OpenRGB Windows 32-bit'
     exclude:
@@ -428,7 +499,7 @@ before_script:
     expire_in: 30 days
 
   rules:
-    - !reference [.upstream_rules, rules]
+    - !reference [.qt5_rules, rules]
 
 #-----------------------------------------------------------#
 # Windows (64-bit) Build Target                             #
@@ -439,7 +510,7 @@ before_script:
   stage: build
   script:
   - $ErrorActionPreference = "SilentlyContinue" ; Set-MpPreference -DisableRealtimeMonitoring $true ; $ErrorActionPreference = "Stop"
-  - scripts\build-windows.bat 5.15.0 2019 64
+  - scripts\build-windows.bat 6.8.3 2022 64
   artifacts:
     name: "${CI_PROJECT_NAME}_Windows_64_${CI_COMMIT_SHORT_SHA}"
     paths:
@@ -470,17 +541,17 @@ before_script:
   - "saas-windows-medium-amd64"
 
 #-----------------------------------------------------------#
-# Windows (64-bit) Qt6 Build Target                         #
+# Windows (64-bit) Qt5 Build Target                         #
 #-----------------------------------------------------------#
-"Windows 64 Qt6 Base":
+"Windows 64 Qt5 Base":
   extends:
   - .shared_windows_runners
   stage: build
   script:
   - $ErrorActionPreference = "SilentlyContinue" ; Set-MpPreference -DisableRealtimeMonitoring $true ; $ErrorActionPreference = "Stop"
-  - scripts\build-windows.bat 6.8.3 2022 64
+  - scripts\build-windows.bat 5.15.0 2019 64
   artifacts:
-    name: "${CI_PROJECT_NAME}_Windows_64_Qt6_${CI_COMMIT_SHORT_SHA}"
+    name: "${CI_PROJECT_NAME}_Windows_64_Qt5_${CI_COMMIT_SHORT_SHA}"
     paths:
     - 'OpenRGB Windows 64-bit'
     exclude:
@@ -491,13 +562,14 @@ before_script:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_PIPELINE_SOURCE == "push"
       when: never
 
-"Windows 64 Qt6":
-  extends: "Windows 64 Qt6 Base"
-  rules:
-  - !reference [.upstream_rules, rules]
 
-"Windows 64 Qt6 (Downstream)":
-  extends: "Windows 64 Qt6 Base"
+"Windows 64 Qt5":
+  extends: "Windows 64 Qt5 Base"
+  rules:
+  - !reference [.qt5_rules, rules]
+
+"Windows 64 Qt5 (Downstream)":
+  extends: "Windows 64 Qt5 Base"
   before_script:
     - git clone https://gitlab.com/OpenRGBDevelopers/OpenRGB-Qt-Packages
     - cd OpenRGB-Qt-Packages
@@ -516,10 +588,7 @@ before_script:
   - macos
   stage: build
   script:
-  - eval $(/opt/homebrew/bin/brew shellenv)
-  - /opt/homebrew/opt/qt@5/bin/qmake OpenRGB.pro
-  - make -j16
-  - /opt/homebrew/opt/qt@5/bin/macdeployqt OpenRGB.app -codesign=OpenRGB
+  - ./scripts/build-macos.sh qt6 arm
 
   artifacts:
     name: "${CI_PROJECT_NAME}_MacOS_ARM64_${CI_COMMIT_SHORT_SHA}"
@@ -530,34 +599,28 @@ before_script:
   rules:
   - !reference [.upstream_rules, rules]
 
-"MacOS ARM64 Qt6":
+"MacOS ARM64 Qt5":
   tags:
   - macos
   stage: build
   script:
-  - eval $(/opt/homebrew/bin/brew shellenv)
-  - qmake OpenRGB.pro
-  - make -j16
-  - macdeployqt OpenRGB.app -codesign=OpenRGB
+  - ./scripts/build-macos.sh qt5 arm
 
   artifacts:
-    name: "${CI_PROJECT_NAME}_MacOS_ARM64_Qt6_${CI_COMMIT_SHORT_SHA}"
+    name: "${CI_PROJECT_NAME}_MacOS_Qt5_ARM64_${CI_COMMIT_SHORT_SHA}"
     paths:
     - OpenRGB.app
     expire_in: 30 days
 
   rules:
-  - !reference [.upstream_rules, rules]
+  - !reference [.qt5_rules, rules]
 
 "MacOS Intel":
   tags:
   - macos
   stage: build
   script:
-  - eval $(/usr/local/bin/brew shellenv)
-  - arch -x86_64 /usr/local/opt/qt@5/bin/qmake OpenRGB.pro
-  - arch -x86_64 make -j16
-  - arch -x86_64 /usr/local/opt/qt@5/bin/macdeployqt OpenRGB.app -codesign=OpenRGB
+  - ./scripts/build-macos.sh qt6 intel
 
   artifacts:
     name: "${CI_PROJECT_NAME}_MacOS_Intel_${CI_COMMIT_SHORT_SHA}"
@@ -568,24 +631,21 @@ before_script:
   rules:
   - !reference [.upstream_rules, rules]
 
-"MacOS Intel Qt6":
+"MacOS Intel Qt5":
   tags:
   - macos
   stage: build
   script:
-  - eval $(/usr/local/bin/brew shellenv)
-  - arch -x86_64 /usr/local/bin/qmake OpenRGB.pro
-  - arch -x86_64 make -j16
-  - arch -x86_64 /usr/local/bin/macdeployqt OpenRGB.app -codesign=OpenRGB
+  - ./scripts/build-macos.sh qt5 intel
 
   artifacts:
-    name: "${CI_PROJECT_NAME}_MacOS_Intel_Qt6_${CI_COMMIT_SHORT_SHA}"
+    name: "${CI_PROJECT_NAME}_MacOS_Intel_Qt5_${CI_COMMIT_SHORT_SHA}"
     paths:
     - OpenRGB.app
     expire_in: 30 days
 
   rules:
-  - !reference [.upstream_rules, rules]
+  - !reference [.qt5_rules, rules]
 
 #-----------------------------------------------------------#
 # Windows (64-bit) MSI Target                               #
