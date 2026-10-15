@@ -311,12 +311,17 @@ static const mystic_light_761_config* find_board_config(const std::string& board
         }
     }
 
+    /*-----------------------------------------------------*\
+    | Diagnostic build: the GODLIKE's setup turned all the  |
+    | LEDs of a GODLIKE MAX off, so a board matched only by |
+    | its number gets no configuration and no setup is sent |
+    \*-----------------------------------------------------*/
     if(found != nullptr)
     {
-        LOG_INFO("[%s]: not listed, using the configuration of %s (same board number)", board_name.c_str(), found->name->c_str());
+        LOG_INFO("[%s]: not listed; %s has the same board number, but its setup is not sent (read-only diagnostic)", board_name.c_str(), found->name->c_str());
     }
 
-    return found;
+    return nullptr;
 }
 
 MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, const char* path, std::string dev_name)

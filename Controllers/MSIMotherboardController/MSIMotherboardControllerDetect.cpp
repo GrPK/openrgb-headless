@@ -91,6 +91,29 @@ DetectedControllers DetectMSIMotherboardControllers(hid_device_info* info, const
             size_t enable_reading_packet = hid_get_feature_report(dev, second_buffer, 290);
             LOG_INFO("Read %i bytes from read enable packet, subsequent get reports should work", enable_reading_packet);
 
+            /*---------------------------------------------*\
+            | Diagnostic: log the setup the board holds     |
+            | (the one MSI Center gave it), row by row in   |
+            | the order of the 761 driver's setup_map       |
+            \*---------------------------------------------*/
+            static const char* setup_rows[] =
+            {
+                "JARGB 1", "JARGB 2", "JARGB 3", "JAF", "JPIPE 1", "JPIPE 2", "JPIPE 3", "JPIPE 4", "JPIPE 5",
+                "JRGB 1", "JRGB 2", "Onboard 1", "Onboard 2", "Onboard 3", "Onboard 4", "Onboard 5", "Onboard 6", "Select all",
+            };
+            int setup_length = (int)enable_reading_packet;
+
+            for(int row = 0; row < 18 && (1 + (row + 1) * 16) <= setup_length; row++)
+            {
+                char hex[16 * 3 + 1] = { 0 };
+
+                for(int i = 0; i < 16; i++)
+                {
+                    snprintf(hex + 3 * i, 4, "%02X ", second_buffer[1 + row * 16 + i]);
+                }
+                LOG_INFO("[MSI 761 setup] %-10s %s", setup_rows[row], hex);
+            }
+
             memset(second_buffer + sizeof(unsigned char), 0x0, sizeof(second_buffer) - sizeof(unsigned char));
 
 
