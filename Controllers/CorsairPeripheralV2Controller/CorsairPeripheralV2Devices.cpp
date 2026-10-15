@@ -1219,6 +1219,30 @@ static const corsair_v2_device k70_rgb_pro_v2_device =
 };
 
 /*-------------------------------------------------------------*\
+|  Corsair K70 RGB Pro Optical 1B1C:1BD4                        |
+|                                                               |
+|  Zone "Keyboard"                                              |
+|       Matrix                                                  |
+|       6 Rows, 21 Columns                                      |
+\*-------------------------------------------------------------*/
+static const corsair_v2_device k70_rgb_pro_optical_device =
+{
+    CORSAIR_K70_RGB_PRO_OPTICAL_PID,
+    DEVICE_TYPE_KEYBOARD,
+    7,
+    21,
+    {
+        &k70_rgb_pro_zone,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr
+    },
+    &corsair_k70_pro_layout
+};
+
+/*-------------------------------------------------------------*\
 |   Corsair K95 RGB PLATINUM XT 1B1C:1B89                       |
 |                                                               |
 |   Zone "Keyboard"                                             |
@@ -1655,6 +1679,7 @@ const corsair_v2_device* corsair_v2_device_list_data[] =
     &k70_core_rgb_tkl_device,
     &k70_rgb_pro_device,
     &k70_rgb_pro_v2_device,
+    &k70_rgb_pro_optical_device,
     &k70_rgb_tkl_device,
     &k70_rgb_tkl_cs_device,
     &k95_platinum_xt_device,
