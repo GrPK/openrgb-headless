@@ -1180,7 +1180,7 @@ bool MSIMotherboard185Controller::ReadFwVersion()
     | Send request and receive response packets             |
     \*-----------------------------------------------------*/
     ret_val &= hid_write(dev, request, 64);
-    ret_val &= hid_read(dev, response, 64);
+    ret_val &= hid_read_timeout(dev, response, 64, 1000);
 
     version_APROM_val = response[2];
 
@@ -1211,7 +1211,7 @@ bool MSIMotherboard185Controller::ReadFwVersion()
     | Send request and receive response packets             |
     \*-----------------------------------------------------*/
     ret_val &= hid_write(dev, request, 64);
-    ret_val &= hid_read(dev, response, 64);
+    ret_val &= hid_read_timeout(dev, response, 64, 1000);
 
     /*-----------------------------------------------------*\
     | Extract high and low values from response             |
