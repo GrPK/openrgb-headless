@@ -22,6 +22,11 @@
 
 inline constexpr const char * BOARD_UNSUPPORTED_ERROR =  "No Config Found For Board";
 
+/*---------------------------------------------------------*\
+| Diagnostic: logs a 0x50 setup report row by row           |
+\*---------------------------------------------------------*/
+void LogMSI761Setup(const unsigned char* setup, int length, const char* when);
+
 class MSIMotherboard761Controller
 {
 public:

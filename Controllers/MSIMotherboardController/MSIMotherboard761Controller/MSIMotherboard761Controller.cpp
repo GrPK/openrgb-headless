@@ -73,6 +73,24 @@ static const std::vector<MSI_ZONE> zone_set3 =
     MSI_ZONE_J_PIPE_4,
 };
 
+/*---------------------------------------------------------*\
+| MEG X870E GODLIKE MAX: the same 37 logo LEDs as the       |
+| GODLIKE, but MSI Center switches on only JPIPE 1 to 3     |
+| there (JPIPE 4 and the rows after it are all zero). The   |
+| GODLIKE's setup, with JPIPE 4 on, left all of its LEDs    |
+| dark.                                                     |
+\*---------------------------------------------------------*/
+static const std::vector<MSI_ZONE> zone_set4 =
+{
+    MSI_ZONE_JAF,
+    MSI_ZONE_JARGB_1,
+    MSI_ZONE_JARGB_2,
+    MSI_ZONE_JARGB_3,
+    MSI_ZONE_J_PIPE_1,
+    MSI_ZONE_J_PIPE_2,
+    MSI_ZONE_J_PIPE_3,
+};
+
 static const std::string board_names[] =
 {
     "MSI MAG X870 TOMAHAWK WIFI (MS-7E51)",
@@ -110,7 +128,8 @@ static const std::string board_names[] =
     "MSI PRO B850M-A WIFI (MS-7E66)",
     "MSI PRO B850-S WIFI6E (MS-7E80)",
     "MSI B850M GAMING WIFI (MS-7E82)",
-    "MSI MEG X870E GODLIKE (MS-7E48)"
+    "MSI MEG X870E GODLIKE (MS-7E48)",
+    "MSI MEG X870E GODLIKE MAX (MS-7E48)"
 };
 
 static const mystic_light_761_config board_configs[] =
@@ -151,6 +170,7 @@ static const mystic_light_761_config board_configs[] =
     { &(board_names[33]), 0,  0,  0, 1, &zone_set1,  MSIMotherboard761Controller::DIRECT_MODE_ZONE_BASED },     // MSI PRO B850-S WIFI6E (MS-7E80)
     { &(board_names[34]), 0,  0,  0, 1, &zone_set1,  MSIMotherboard761Controller::DIRECT_MODE_ZONE_BASED },     // MSI B850M GAMING WIFI (MS-7E82)
     { &(board_names[35]), 0,  37, 0, 1, &zone_set3,  MSIMotherboard761Controller::DIRECT_MODE_ZONE_BASED },     // MSI MEG X870E GODLIKE (MS-7E48)
+    { &(board_names[36]), 0,  37, 0, 1, &zone_set4,  MSIMotherboard761Controller::DIRECT_MODE_ZONE_BASED },     // MSI MEG X870E GODLIKE MAX (MS-7E48)
 };
 
 enum MSI_ZONE setup_map [] =
@@ -213,6 +233,26 @@ unsigned char initial_setup_array[] =
     0x09, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x03, 0x95, 0x1E, //Select all?
     0x00
 };
+
+void LogMSI761Setup(const unsigned char* setup, int length, const char* when)
+{
+    static const char* rows[] =
+    {
+        "JARGB 1", "JARGB 2", "JARGB 3", "JAF", "JPIPE 1", "JPIPE 2", "JPIPE 3", "JPIPE 4", "JPIPE 5",
+        "JRGB 1", "JRGB 2", "Onboard 1", "Onboard 2", "Onboard 3", "Onboard 4", "Onboard 5", "Onboard 6", "Select all",
+    };
+
+    for(int row = 0; row < 18 && (1 + (row + 1) * 16) <= length; row++)
+    {
+        char hex[16 * 3 + 1] = { 0 };
+
+        for(int i = 0; i < 16; i++)
+        {
+            snprintf(hex + 3 * i, 4, "%02X ", setup[1 + row * 16 + i]);
+        }
+        LOG_INFO("[MSI 761 setup %s] %-10s %s", when, rows[row], hex);
+    }
+}
 
 unsigned char * initializer_array()
 {
@@ -406,6 +446,11 @@ MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, con
             \*---------------------------------------------*/
             int res = hid_send_feature_report(dev, conf_arr, SETUP_ARRAY_SIZE);
             LOG_INFO("Sending configuration resulted in %i\n", res);
+            LogMSI761Setup(conf_arr, SETUP_ARRAY_SIZE, "sent");
+
+            unsigned char read_back[SETUP_ARRAY_SIZE] = { 0 };
+            read_back[0] = 0x50;
+            LogMSI761Setup(read_back, hid_get_feature_report(dev, read_back, SETUP_ARRAY_SIZE), "read back");
 
             data                        = new FeaturePacket_761;
 
