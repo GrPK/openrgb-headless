@@ -112,8 +112,8 @@ CorsairPeripheralV2Controller::CorsairPeripheralV2Controller(hid_device* dev_han
     \*---------------------------------------------------------*/
     if(not_found)
     {
-        LOG_ERROR("[%s] device capabilities not found. Please creata a new device request.",
-                  device_name.c_str());
+        LOG_ERROR("[%s] device capabilities not found for PID %04X. Please creata a new device request.",
+                  device_name.c_str(), pid);
         return;
     }
 

@@ -1128,6 +1128,31 @@ void NetworkServer::ControllerListenThread(NetworkServerControllerThread* this_t
 
                 switch(queue_entry.header.pkt_id)
                 {
+                    case NET_PACKET_ID_REQUEST_CONTROLLER_DATA:
+                        {
+                            /*---------------------------------*\
+                            | Protocol versions < 6 sent the    |
+                            | client protocol version with this |
+                            | request, versions 6+ use the      |
+                            | stored negotiated protocol        |
+                            | version instead.                  |
+                            \*---------------------------------*/
+                            unsigned int protocol_version = queue_entry.client_info->client_protocol_version;
+
+                            if(queue_entry.client_info->client_protocol_version < 6)
+                            {
+                                protocol_version = 0;
+
+                                if(queue_entry.header.pkt_size == sizeof(unsigned int))
+                                {
+                                    memcpy(&protocol_version, queue_entry.data, sizeof(unsigned int));
+                                }
+                            }
+
+                            SendReply_ControllerData(queue_entry.client_info, queue_entry.header.pkt_dev_id, protocol_version);
+                        }
+                        break;
+
                     case NET_PACKET_ID_RGBCONTROLLER_UPDATELEDS:
                         status = ProcessRequest_RGBController_UpdateLEDs(queue_entry.client_info, queue_entry.header.pkt_size, queue_entry.data, queue_entry.header.pkt_dev_id);
                         break;
@@ -1334,32 +1359,6 @@ void NetworkServer::ListenThreadFunction(NetworkClientInfo* client_info)
                 SendReply_ControllerCount(client_info);
                 break;
 
-            case NET_PACKET_ID_REQUEST_CONTROLLER_DATA:
-                {
-                    /*-------------------------------------*\
-                    | Protocol versions < 6 sent the client |
-                    | protocol version with this request,   |
-                    | versions 6+ use the stored negotiated |
-                    | protocol version instead.             |
-                    \*-------------------------------------*/
-                    if(client_info->client_protocol_version < 6)
-                    {
-                        unsigned int protocol_version = 0;
-
-                        if(header.pkt_size == sizeof(unsigned int))
-                        {
-                            memcpy(&protocol_version, data, sizeof(unsigned int));
-                        }
-
-                        SendReply_ControllerData(client_info, header.pkt_dev_id, protocol_version);
-                    }
-                    else
-                    {
-                        SendReply_ControllerData(client_info, header.pkt_dev_id, client_info->client_protocol_version);
-                    }
-                }
-                break;
-
             case NET_PACKET_ID_REQUEST_PROTOCOL_VERSION:
                 status = ProcessRequest_ClientProtocolVersion(client_info, header.pkt_size, data);
                 SendReply_ProtocolVersion(client_info);
@@ -1512,6 +1511,7 @@ void NetworkServer::ListenThreadFunction(NetworkClientInfo* client_info)
             case NET_PACKET_ID_RGBCONTROLLER_UPDATEMODE:
             case NET_PACKET_ID_RGBCONTROLLER_SAVEMODE:
             case NET_PACKET_ID_RGBCONTROLLER_UPDATEZONEMODE:
+            case NET_PACKET_ID_REQUEST_CONTROLLER_DATA:
                 {
                     /*-------------------------------------*\
                     | Find the controller thread matching   |
@@ -3124,7 +3124,7 @@ NetPacketStatus NetworkServer::ProcessRequest_RGBController_UpdateLEDs(NetworkCl
     | Convert ID to index                                   |
     \*-----------------------------------------------------*/
     bool            controller_idx_valid;
-    unsigned int    controller_idx          = index_from_id(controller_id, client_info->client_protocol_version, &controller_idx_valid);
+    unsigned int    controller_idx          = index_from_id_locked(controller_id, client_info->client_protocol_version, &controller_idx_valid);
     unsigned int    data_size_pkt;
     unsigned char*  data_start              = data_ptr;
 
@@ -3193,7 +3193,7 @@ NetPacketStatus NetworkServer::ProcessRequest_RGBController_UpdateSaveMode(Netwo
     | Convert ID to index                                   |
     \*-----------------------------------------------------*/
     bool            controller_idx_valid;
-    unsigned int    controller_idx          = index_from_id(controller_id, client_info->client_protocol_version, &controller_idx_valid);
+    unsigned int    controller_idx          = index_from_id_locked(controller_id, client_info->client_protocol_version, &controller_idx_valid);
     unsigned int    data_size_pkt;
     unsigned char*  data_start              = data_ptr;
     int             mode_idx;
@@ -3380,7 +3380,7 @@ NetPacketStatus NetworkServer::ProcessRequest_RGBController_UpdateZoneLEDs(Netwo
     | Convert ID to index                                   |
     \*-----------------------------------------------------*/
     bool            controller_idx_valid;
-    unsigned int    controller_idx          = index_from_id(controller_id, client_info->client_protocol_version, &controller_idx_valid);
+    unsigned int    controller_idx          = index_from_id_locked(controller_id, client_info->client_protocol_version, &controller_idx_valid);
     unsigned int    data_size_pkt;
     unsigned char*  data_start              = data_ptr;
     unsigned short  num_colors;
@@ -3480,7 +3480,7 @@ NetPacketStatus NetworkServer::ProcessRequest_RGBController_UpdateZoneMode(Netwo
     | Convert ID to index                                   |
     \*-----------------------------------------------------*/
     bool            controller_idx_valid;
-    unsigned int    controller_idx          = index_from_id(controller_id, client_info->client_protocol_version, &controller_idx_valid);
+    unsigned int    controller_idx          = index_from_id_locked(controller_id, client_info->client_protocol_version, &controller_idx_valid);
     unsigned int    data_size_pkt;
     unsigned char*  data_start              = data_ptr;
     int             mode_idx;
@@ -3667,7 +3667,7 @@ void NetworkServer::SendReply_ControllerData(NetworkClientInfo* client_info, uns
     | Convert ID to index                                       |
     \*---------------------------------------------------------*/
     bool            idx_valid;
-    unsigned int    dev_idx = index_from_id(dev_id, protocol_version, &idx_valid);
+    unsigned int    dev_idx = index_from_id_locked(dev_id, protocol_version, &idx_valid);
 
     if(idx_valid && (dev_idx < controller_ids.size()))
     {
@@ -4471,6 +4471,18 @@ int NetworkServer::accept_select(int sockfd)
 unsigned int NetworkServer::index_from_id(unsigned int id, unsigned int protocol_version, bool* index_valid)
 {
     /*-----------------------------------------------------*\
+    | Callers already holding controller_ids_mutex must use |
+    | index_from_id_locked: a nested shared acquire blocks  |
+    | behind a waiting SetControllers writer and deadlocks  |
+    \*-----------------------------------------------------*/
+    std::shared_lock<std::shared_mutex> ids_lock(controller_ids_mutex);
+
+    return(index_from_id_locked(id, protocol_version, index_valid));
+}
+
+unsigned int NetworkServer::index_from_id_locked(unsigned int id, unsigned int protocol_version, bool* index_valid)
+{
+    /*-----------------------------------------------------*\
     | For protocol < 6, the ID is the index                 |
     \*-----------------------------------------------------*/
     unsigned int index  = id;
@@ -4481,8 +4493,6 @@ unsigned int NetworkServer::index_from_id(unsigned int id, unsigned int protocol
     \*-----------------------------------------------------*/
     if(protocol_version >= 6)
     {
-        controller_ids_mutex.lock_shared();
-
         *index_valid = false;
 
         for(std::size_t controller_id_idx = 0; controller_id_idx < controller_ids.size(); controller_id_idx++)
@@ -4494,8 +4504,6 @@ unsigned int NetworkServer::index_from_id(unsigned int id, unsigned int protocol
                 break;
             }
         }
-
-        controller_ids_mutex.unlock_shared();
     }
     else
     {

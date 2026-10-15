@@ -1219,6 +1219,30 @@ static const corsair_v2_device k70_rgb_pro_v2_device =
 };
 
 /*-------------------------------------------------------------*\
+|  Corsair K70 RGB Pro Optical 1B1C:1BD4                        |
+|                                                               |
+|  Zone "Keyboard"                                              |
+|       Matrix                                                  |
+|       6 Rows, 21 Columns                                      |
+\*-------------------------------------------------------------*/
+static const corsair_v2_device k70_rgb_pro_optical_device =
+{
+    CORSAIR_K70_RGB_PRO_OPTICAL_PID,
+    DEVICE_TYPE_KEYBOARD,
+    7,
+    21,
+    {
+        &k70_rgb_pro_zone,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr
+    },
+    &corsair_k70_pro_layout
+};
+
+/*-------------------------------------------------------------*\
 |   Corsair K95 RGB PLATINUM XT 1B1C:1B89                       |
 |                                                               |
 |   Zone "Keyboard"                                             |
@@ -1569,6 +1593,107 @@ static const corsair_v2_device m75_wireless_device =
 };
 
 /*-------------------------------------------------------------*\
+|  Corsair M75 Wireless 1B1C:2B08                               |
+|                                                               |
+|  A second M75 Wireless PID, reported through the Slipstream   |
+|  receiver 1B1C:1BDC. Same zones as 1B1C:1BF1.                 |
+\*-------------------------------------------------------------*/
+static const corsair_v2_device m75_wireless_2_device =
+{
+    CORSAIR_M75_WIRELESS_PID2,
+    DEVICE_TYPE_MOUSE,
+    1,
+    2,
+    {
+        &m75_logo_zone,
+        &m75_wireless_bottom_zone,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr
+    },
+    nullptr
+};
+
+/*-------------------------------------------------------------*\
+|  Corsair Scimitar Elite RGB 1B1C:1BE3                         |
+|                                                               |
+|  A later revision of the Scimitar Elite RGB (1B1C:1B8B) that  |
+|  uses the V2 protocol.                                        |
+|                                                               |
+|  Zone "Logo"                                                  |
+|       Single                                                  |
+|                                                               |
+|  Zone "Scroll Wheel"                                          |
+|       Single                                                  |
+|                                                               |
+|  Zone "Front Right"                                           |
+|       Single                                                  |
+|                                                               |
+|  Zone "Side Buttons"                                          |
+|       Single                                                  |
+|                                                               |
+|  Zone "Front Left"                                            |
+|       Single                                                  |
+\*-------------------------------------------------------------*/
+static const corsair_v2_zone scimitar_elite_logo_zone =
+{
+    "Logo",
+    ZONE_TYPE_SINGLE,
+    1,
+    1
+};
+
+static const corsair_v2_zone scimitar_elite_scroll_zone =
+{
+    "Scroll Wheel",
+    ZONE_TYPE_SINGLE,
+    1,
+    1
+};
+
+static const corsair_v2_zone scimitar_elite_front_right_zone =
+{
+    "Front Right",
+    ZONE_TYPE_SINGLE,
+    1,
+    1
+};
+
+static const corsair_v2_zone scimitar_elite_side_buttons_zone =
+{
+    "Side Buttons",
+    ZONE_TYPE_SINGLE,
+    1,
+    1
+};
+
+static const corsair_v2_zone scimitar_elite_front_left_zone =
+{
+    "Front Left",
+    ZONE_TYPE_SINGLE,
+    1,
+    1
+};
+
+static const corsair_v2_device scimitar_elite_v2_device =
+{
+    CORSAIR_SCIMITAR_ELITE_RGB_V2_PID,
+    DEVICE_TYPE_MOUSE,
+    1,
+    5,
+    {
+        &scimitar_elite_logo_zone,
+        &scimitar_elite_scroll_zone,
+        &scimitar_elite_front_right_zone,
+        &scimitar_elite_side_buttons_zone,
+        &scimitar_elite_front_left_zone,
+        nullptr
+    },
+    nullptr
+};
+
+/*-------------------------------------------------------------*\
 |  Corsair MM700 1B1C:1B9B                                      |
 |                                                               |
 |  Zone "Logo"                                                  |
@@ -1655,6 +1780,7 @@ const corsair_v2_device* corsair_v2_device_list_data[] =
     &k70_core_rgb_tkl_device,
     &k70_rgb_pro_device,
     &k70_rgb_pro_v2_device,
+    &k70_rgb_pro_optical_device,
     &k70_rgb_tkl_device,
     &k70_rgb_tkl_cs_device,
     &k95_platinum_xt_device,
@@ -1678,6 +1804,8 @@ const corsair_v2_device* corsair_v2_device_list_data[] =
     &m65_ultra_rgb_device,
     &m75_device,
     &m75_wireless_device,
+    &m75_wireless_2_device,
+    &scimitar_elite_v2_device,
 
 /*-----------------------------------------------------------------*\
 |  MOUSEMATS                                                        |
