@@ -129,7 +129,55 @@ DetectedControllers DetectMSIMotherboardControllers(hid_device_info* info, const
     return(detected_controllers);
 }
 
-REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_1720",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x1720,   0x0001, 0x00);
+/*---------------------------------------------------------*\
+| The MEG Z790 GODLIKE has a second Mystic Light controller |
+| (0DB0:E777, same serial as its 1462:7D85) for the MEG     |
+| logo and the lights around it. Only the 185-byte protocol |
+| is tried on it: with any other answer it is left alone,   |
+| without the 761-byte probe of the detector above.         |
+\*---------------------------------------------------------*/
+DetectedControllers DetectMSIMotherboard185SecondController(hid_device_info* info, const std::string& /*name*/)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev = hid_open_path(info->path);
+
+    if(dev == nullptr)
+    {
+        return(detected_controllers);
+    }
+
+    unsigned char temp_buffer[200];
+    temp_buffer[0]              = 0x52;
+
+    int         packet_length   = hid_get_feature_report(dev, temp_buffer, 200);
+
+    if((packet_length >= (int)sizeof(FeaturePacket_185)) && (packet_length <= (int)(sizeof(FeaturePacket_185) + 1)))
+    {
+        DMIInfo     dmi;
+        std::string dmi_name    = "MSI " + dmi.getMainboard() + " MEG logo";
+
+        MSIMotherboard185Controller* controller = new MSIMotherboard185Controller(dev, info->path, info->product_id, dmi_name);
+
+        if(controller->GetFirmwareVersionInvalid())
+        {
+            LOG_WARNING("[MSIMotherboard185] Controller firmware below minimum supported version, skipping");
+            delete controller;
+        }
+        else
+        {
+            detected_controllers.push_back(new RGBController_MSIMotherboard185(controller));
+        }
+    }
+    else
+    {
+        LOG_INFO("[MSIMotherboard185] %04X:%04X answered %d bytes, not the 185-byte protocol, left alone", info->vendor_id, info->product_id, packet_length);
+        hid_close(dev);
+    }
+
+    return(detected_controllers);
+}
+
+REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_1720",   DetectMSIMotherboardControllers,   MSI_USB_VID,    0x1720,   0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7B12",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7B12,   0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7B16",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7B16,   0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7B17",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7B17,   0x0001, 0x00);
@@ -210,6 +258,7 @@ REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D75",    DetectMSIMotherboardCont
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D76",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D76,   0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D77",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D77,   0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D78",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D78,   0x0001, 0x00);
+REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D85",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D85,   0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D86",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D86,   0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D88",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D88,   0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_7D89",    DetectMSIMotherboardControllers,   MSI_USB_VID,    0x7D89,   0x0001, 0x00);
@@ -242,6 +291,9 @@ REGISTER_HID_DETECTOR_PU("MSI Mystic Light MS_B926",    DetectMSIMotherboardCont
 // Detector for the set of common boards
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light Common",     DetectMSIMotherboardControllers,   MSI_USB_VID_COMMON,  MSI_USB_PID_COMMON, 0x0001, 0x00);
 REGISTER_HID_DETECTOR_PU("MSI Mystic Light X870",       DetectMSIMotherboardControllers,   MSI_USB_VID_COMMON,  MSI_USB_PID_COMMON, 0xFF00, 0x01);
+
+// Second controller of the MEG Z790 GODLIKE (single HID collection)
+REGISTER_HID_DETECTOR("MSI Mystic Light 0DB0:E777",     DetectMSIMotherboard185SecondController,   MSI_USB_VID_COMMON,  0xE777);
 
 REGISTER_CUSTOM_UDEV_RULE(msi_7e12, "MSI Mystic Light MS_7E12", "SUBSYSTEMS==\"usb|hidraw\", ATTRS{idVendor}==\"1462\", ATTRS{idProduct}==\"7e12\", TAG+=\"uaccess\", TAG+=\"MSI_Mystic_Light_MS_7E12\"");
 REGISTER_CUSTOM_UDEV_RULE(msi_7e16, "MSI Mystic Light MS_7E16", "SUBSYSTEMS==\"usb|hidraw\", ATTRS{idVendor}==\"1462\", ATTRS{idProduct}==\"7e16\", TAG+=\"uaccess\", TAG+=\"MSI_Mystic_Light_MS_7E16\"");
