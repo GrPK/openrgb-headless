@@ -321,6 +321,7 @@ void KingstonFuryDRAMController::SetLEDColors(std::vector<RGBColor> colors)
     }
 
     unsigned int led_per_dimm = GetLEDPerDIMM();
+    bool write_occurred = false;
     for(unsigned int led_idx = 0; led_idx < led_per_dimm; led_idx++)
     {
         int red_register    = FURY_REG_BASE_RED   + 3 * led_idx;
@@ -340,9 +341,18 @@ void KingstonFuryDRAMController::SetLEDColors(std::vector<RGBColor> colors)
             blues.push_back(blue);
         }
 
-        SetRegister(red_register, reds);
-        SetRegister(blue_register, blues);
-        SetRegister(green_register, greens);
+        for(std::size_t slot_idx = 0; slot_idx < GetSlotCount(); slot_idx++)
+        {
+            write_occurred = CachedWrite((int)slot_idx, red_register,   reds[slot_idx])   || write_occurred;
+            write_occurred = CachedWrite((int)slot_idx, blue_register,  blues[slot_idx])  || write_occurred;
+            write_occurred = CachedWrite((int)slot_idx, green_register, greens[slot_idx]) || write_occurred;
+        }
+    }
+
+    // One settle delay for the whole frame instead of one per register.
+    if(write_occurred)
+    {
+        std::this_thread::sleep_for(FURY_DELAY);
     }
 }
 
