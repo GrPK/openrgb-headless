@@ -34,6 +34,10 @@ enum
     AURA_MODE_CHASE_RAINBOW_PULSE       = 12,       /* Chase with  Rainbow Pulse effect mode*/
     AURA_MODE_RANDOM_FLICKER            = 13,       /* Random flicker effect mode           */
     AURA_MODE_MUSIC                     = 14,       /* Music effect mode                    */
+    AURA_MODE_GENTLE_TRANSITION         = 16,       /* Gentle transition effect mode        */
+    AURA_MODE_WAVE_PROPAGATION          = 17,       /* Wave propagation effect mode         */
+    AURA_MODE_WAVE_PROPAGATION_PAUSE    = 18,       /* Wave propagation with pause mode     */
+    AURA_MODE_RED_PULSE                 = 19,       /* Red pulse effect mode                */
     AURA_MODE_DIRECT                    = 0xFF,     /* Direct control mode                  */
 };
 
@@ -44,13 +48,19 @@ enum
     AURA_CONTROL_MODE_DIRECT            = 0x40,     /* Direct control mode                  */
 };
 
+enum
+{
+    AURA_DIRECT_CMD_APPLY               = 0x80,     /* Apply changes                         */
+    AURA_DIRECT_CMD_8BIT_OVERFLOW       = 0x10,     /* Set LED offset 8-bit overflow flag    */
+};
+
 enum class AuraDeviceType
 {
     FIXED,
     ADDRESSABLE,
 };
 
-#define LEDS_PER_PACKET  0x14;
+#define LEDS_PER_PACKET  0x14
 
 struct AuraDeviceInfo
 {
@@ -103,7 +113,7 @@ protected:
     void SendDirect
         (
         unsigned char   device,
-        unsigned char   led_count,
+        unsigned short  led_count,
         RGBColor *      colors
         );
 
