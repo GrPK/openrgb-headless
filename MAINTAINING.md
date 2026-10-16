@@ -263,6 +263,26 @@ in favor of theirs.
 
 **Upstream PR candidate:** Yes, once confirmed on hardware.
 
+### NetworkServer.cpp - no LED echo to the writing client
+
+**What we changed:** `ProcessRequest_RGBController_UpdateLEDs`,
+`UpdateZoneLEDs` and `UpdateSingleLED` set the thread-local
+`led_write_client` around the controller call, and
+`SendRequest_RGBController_SignalUpdate` skips that client for
+`RGBCONTROLLER_UPDATE_REASON_UPDATELEDS`. Every other client, and every other
+update reason, is queued as before.
+
+**Why:** the writer already holds the colors it sent. Nexus streams every
+controller at 30 fps and discarded the echo: on a HYTE Y70 it was 312 TCP
+segments/s (26.7 KB/s) of loopback traffic and the send-thread work behind it.
+
+**Conflict resolution:** keep the `led_write_client` set/clear around the
+three `Update*LEDs` calls and the `continue` at the top of the client loop.
+`RGBController::UpdateLEDs`, `UpdateZoneLEDs` and `UpdateSingleLED` must keep
+raising `SignalUpdate` on the calling thread, or the skip stops matching.
+
+**Upstream PR candidate:** Maybe (a protocol behavior change for SDK clients).
+
 ### RGBController.cpp - device call thread waits on a condition variable
 
 **What we changed:** `DeviceCallThreadFunction()` waits on `DeviceCallCV`

@@ -934,7 +934,7 @@ The client uses this ID to call the SetDeviceSpecificZoneConfiguration function 
 
 ### Server Only [Size: Variable]
 
-The server uses this ID to signal the client that SignalUpdate() was called on an RGBController device.  The packet contains a data block.  The format of the data block is shown below.  The `pkt_dev_id` of this request's header indicates which controller signalled SignalUpdate().  See the [Device IDs](#device-ids) section for more information.
+The server uses this ID to signal the client that SignalUpdate() was called on an RGBController device.  The packet contains a data block.  The format of the data block is shown below.  The `pkt_dev_id` of this request's header indicates which controller signalled SignalUpdate().  See the [Device IDs](#device-ids) section for more information.  An RGBCONTROLLER_UPDATE_REASON_UPDATELEDS signal raised by a client's own UpdateLEDs, UpdateZoneLEDs or UpdateSingleLED request is not sent back to that client.
 
 | Size                | Format                    | Name                | Description                                                   |
 | ------------------- | ------------------------- | ------------------- | ------------------------------------------------------------- |
