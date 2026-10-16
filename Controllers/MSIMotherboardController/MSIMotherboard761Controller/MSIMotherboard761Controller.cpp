@@ -73,6 +73,22 @@ static const std::vector<MSI_ZONE> zone_set3 =
     MSI_ZONE_J_PIPE_4,
 };
 
+/*---------------------------------------------------------*\
+| The GODLIKE MAX has the GODLIKE's 37 logo LEDs, but MSI   |
+| Center switches on only JPIPE1 to JPIPE3 there. With      |
+| JPIPE4 on as well (zone_set3), all of its LEDs go dark.   |
+\*---------------------------------------------------------*/
+static const std::vector<MSI_ZONE> zone_set4 =
+{
+    MSI_ZONE_JAF,
+    MSI_ZONE_JARGB_1,
+    MSI_ZONE_JARGB_2,
+    MSI_ZONE_JARGB_3,
+    MSI_ZONE_J_PIPE_1,
+    MSI_ZONE_J_PIPE_2,
+    MSI_ZONE_J_PIPE_3,
+};
+
 static const std::string board_names[] =
 {
     "MSI MAG X870 TOMAHAWK WIFI (MS-7E51)",
@@ -110,7 +126,8 @@ static const std::string board_names[] =
     "MSI PRO B850M-A WIFI (MS-7E66)",
     "MSI PRO B850-S WIFI6E (MS-7E80)",
     "MSI B850M GAMING WIFI (MS-7E82)",
-    "MSI MEG X870E GODLIKE (MS-7E48)"
+    "MSI MEG X870E GODLIKE (MS-7E48)",
+    "MSI MEG X870E GODLIKE MAX (MS-7E48)"
 };
 
 static const mystic_light_761_config board_configs[] =
@@ -151,6 +168,7 @@ static const mystic_light_761_config board_configs[] =
     { &(board_names[33]), 0,  0,  0, 1, &zone_set1,  MSIMotherboard761Controller::DIRECT_MODE_ZONE_BASED },     // MSI PRO B850-S WIFI6E (MS-7E80)
     { &(board_names[34]), 0,  0,  0, 1, &zone_set1,  MSIMotherboard761Controller::DIRECT_MODE_ZONE_BASED },     // MSI B850M GAMING WIFI (MS-7E82)
     { &(board_names[35]), 0,  37, 0, 1, &zone_set3,  MSIMotherboard761Controller::DIRECT_MODE_ZONE_BASED },     // MSI MEG X870E GODLIKE (MS-7E48)
+    { &(board_names[36]), 0,  37, 0, 1, &zone_set4,  MSIMotherboard761Controller::DIRECT_MODE_ZONE_BASED },     // MSI MEG X870E GODLIKE MAX (MS-7E48)
 };
 
 enum MSI_ZONE setup_map [] =
