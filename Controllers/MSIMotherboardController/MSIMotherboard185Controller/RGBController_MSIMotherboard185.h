@@ -16,6 +16,8 @@
 #include "RGBController.h"
 #include "MSIMotherboard185Controller.h"
 
+struct ZoneDescription;
+
 class RGBController_MSIMotherboard185: public RGBController
 {
 public:
@@ -48,6 +50,7 @@ private:
     int         GetDeviceMode();
     void        GetDeviceConfig();
 
-    MSIMotherboard185Controller*    controller;
-    MSI_ZONE                        last_resizable_zone;
+    MSIMotherboard185Controller*            controller;
+    MSI_ZONE                                last_resizable_zone;
+    std::vector<const ZoneDescription*>     zone_description;
 };
