@@ -467,8 +467,8 @@ void DetectionManager::RegisterRGBController(RGBController *rgb_controller, cons
 
     /*-----------------------------------------------------*\
     | Detectors that register from inside their own body    |
-    | never pass through TagDetector's return    |
-    | value, so fall back to the detector being run         |
+    | never pass through TagDetector's return value, so     |
+    | fall back to the detector being run                   |
     \*-----------------------------------------------------*/
     if(rgb_controller->detector_name.empty())
     {
