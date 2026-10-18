@@ -1000,7 +1000,7 @@ void DetectionManager::BackgroundDetectI2CBuses()
 | the detector map. The detector itself is called directly, as upstream     |
 | does.                                                                     |
 \*-------------------------------------------------------------------------*/
-DetectedControllers DetectionManager::TagDetector(DetectedControllers result, const std::string& name)
+DetectedControllers DetectionManager::TagDetector(DetectedControllers result, std::string name)
 {
     for(RGBController* controller : result)
     {
@@ -1043,7 +1043,7 @@ void DetectionManager::BackgroundDetectI2CDevices(json& detector_settings)
         {
             SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
 
-            DetectedControllers detected_controllers = TagDetector(i2c_device_detectors[i2c_detector_idx](i2c_buses), detection_string);
+            DetectedControllers detected_controllers = TagDetector(i2c_device_detectors[i2c_detector_idx](i2c_buses), i2c_device_detector_strings[i2c_detector_idx]);
 
             for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
             {
@@ -1116,7 +1116,7 @@ void DetectionManager::BackgroundDetectI2CDRAMDevices(json& detector_settings)
 
                         std::vector<SPDWrapper*> matching_slots = slots_with_jedec(slots, i2c_dram_device_detectors[i2c_detector_idx].jedec_id);
 
-                        DetectedControllers detected_controllers = TagDetector(i2c_dram_device_detectors[i2c_detector_idx].function(i2c_buses[bus], matching_slots, i2c_dram_device_detectors[i2c_detector_idx].name), detection_string);
+                        DetectedControllers detected_controllers = TagDetector(i2c_dram_device_detectors[i2c_detector_idx].function(i2c_buses[bus], matching_slots, i2c_dram_device_detectors[i2c_detector_idx].name), i2c_dram_device_detectors[i2c_detector_idx].name);
 
                         for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
                         {
@@ -1172,7 +1172,7 @@ void DetectionManager::BackgroundDetectI2CPCIDevices(json& detector_settings)
                    i2c_buses[bus]->info.pci_subsystem_vendor == i2c_pci_device_detectors[i2c_detector_idx].subven_id &&
                    i2c_buses[bus]->info.pci_subsystem_device == i2c_pci_device_detectors[i2c_detector_idx].subdev_id)
                 {
-                    DetectedControllers detected_controllers = TagDetector(i2c_pci_device_detectors[i2c_detector_idx].function(i2c_buses[bus], i2c_pci_device_detectors[i2c_detector_idx].i2c_addr, i2c_pci_device_detectors[i2c_detector_idx].name), detection_string);
+                    DetectedControllers detected_controllers = TagDetector(i2c_pci_device_detectors[i2c_detector_idx].function(i2c_buses[bus], i2c_pci_device_detectors[i2c_detector_idx].i2c_addr, i2c_pci_device_detectors[i2c_detector_idx].name), i2c_pci_device_detectors[i2c_detector_idx].name);
 
                     for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
                     {
@@ -1281,7 +1281,7 @@ void DetectionManager::BackgroundDetectHIDDevicesSafe(json& detector_settings)
                 {
                     SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
 
-                    DetectedControllers detected_controllers = TagDetector(detector.function(current_hid_device, hid_specific_detectors[hid_detector_idx].name), detection_string);
+                    DetectedControllers detected_controllers = TagDetector(detector.function(current_hid_device, hid_specific_detectors[hid_detector_idx].name), detector.name);
 
                     for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
                     {
@@ -1384,7 +1384,7 @@ void DetectionManager::BackgroundDetectOtherDevices(json& detector_settings)
         {
             SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
 
-            DetectedControllers detected_controllers = TagDetector(device_detectors[detector_idx](), detection_string);
+            DetectedControllers detected_controllers = TagDetector(device_detectors[detector_idx](), device_detector_strings[detector_idx]);
 
             for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
             {
@@ -1574,7 +1574,7 @@ void DetectionManager::RunHIDDetector(hid_device_info* current_hid_device, json&
 
                     SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
 
-                    DetectedControllers detected_controllers = TagDetector(detector->function(current_hid_device, detector->name), detection_string);
+                    DetectedControllers detected_controllers = TagDetector(detector->function(current_hid_device, detector->name), detector->name);
 
                     for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
                     {
@@ -1690,7 +1690,7 @@ void DetectionManager::RunHIDWrappedDetector(const hidapi_wrapper* wrapper, hid_
 
                     SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
 
-                    DetectedControllers detected_controllers = TagDetector(detector->function(*wrapper, current_hid_device, detector->name), detection_string);
+                    DetectedControllers detected_controllers = TagDetector(detector->function(*wrapper, current_hid_device, detector->name), detector->name);
 
                     for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
                     {

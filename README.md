@@ -71,10 +71,10 @@ Everything that's not GUI-bound:
 - **No lost listen-thread wakeups**: the SDK server's per-controller threads
   can no longer miss a wakeup, which left a packet waiting for the next one to
   that controller, or hung a rescan in `join()` and stalled every client.
-- **Detector timeout**: every detector runs under a 5 s timeout; one that times
-  out or throws is skipped and logged, so a single wedged device cannot stall
-  the detection pass (or every later rescan, which is a no-op while a pass is
-  still running).
+- **Detection flow**: every detector is called directly, exactly as upstream
+  does, with no timeout, worker thread or exception wrapper. The only addition
+  is tagging each detected controller with its detector's name for the
+  detector map.
 - **Detector map**: at the end of every detection pass, and whenever a
   controller is added or removed (hotplug), the server writes
   `detector-map.json` into the configuration directory, mapping each detected

@@ -407,7 +407,7 @@ private:
     | detector's own name. A static member so friendship    |
     | reaches RGBController's detector_name.                |
     \*-----------------------------------------------------*/
-    static DetectedControllers TagDetector(DetectedControllers result, const std::string& name);
+    static DetectedControllers TagDetector(DetectedControllers result, std::string name);
 
     /*-----------------------------------------------------*\
     | Dumps device name -> detector name for every known    |

@@ -113,60 +113,39 @@ When upstream merges touch `OpenRGB.pro`:
 
 ## Fork-specific patches (not upstream-identical)
 
-### DetectionManager.cpp - detector exception safety + per-detector timeouts
+### DetectionManager.cpp - detector name tagging
 
 **What we changed:**
 
-1. Added `#include <future>` to the includes.
-2. Added `DetectionManager::RunDetectorWithTimeout(fn, name, timeout_ms)`
-   (`fn` is a `std::function<DetectedControllers()>`) and the constant
-   `DETECTOR_TIMEOUT_MS = 5000`. The helper runs the detector on a worker
-   thread and returns its controllers; on a throw or a timeout it logs once
-   and returns an empty list, detaching a timed-out worker.
-3. Wrapped the 7 detector-invocation sites: I2C device, I2C DIMM, I2C PCI,
-   HID safe-mode, HID (`RunHIDDetector`), HID wrapped (`RunHIDWrappedDetector`,
-   both wrappers), and miscellaneous device.
+1. Added `DetectionManager::TagDetector(result, name)`, which sets
+   `detector_name` on every controller a detector returned. `name` is taken by
+   value.
+2. Wrapped the 7 detector-invocation sites (I2C device, I2C DIMM, I2C PCI, HID
+   safe-mode, `RunHIDDetector`, `RunHIDWrappedDetector`, miscellaneous device)
+   as `TagDetector(<upstream's detector call>, <that site's own name>)`.
+3. `RegisterRGBController` falls back to the shared `detection_string` when a
+   controller has no `detector_name` (detectors that register from inside their
+   own body).
 
-**Why:** Upstream's detection loop runs detectors sequentially with no fault
-isolation. Two failure modes break the entire detection pass:
+**Why:** `detector-map.json` maps device names to the detector key a client
+must denylist. Detectors themselves are called directly, as upstream; there is
+deliberately NO timeout, worker thread, try/catch or `<future>` wrapper (a
+detached timed-out worker leaked controllers and held pointers into a freed
+HID device list).
 
-- **Exceptions:** `std::bad_alloc` from `new`, `std::runtime_error` from DMI
-  reads, etc. - the coroutine unwinds, `DetectDeviceMutex` is leaked, and all
-  later detectors never run.
-- **Hangs:** A detector matches a USB device by VID/PID but the device
-  doesn't speak the expected protocol. The detector's `hid_get_feature_report`
-  blocks forever and detection stops mid-pass. Observed in practice with the
-  Corsair M65 PRO detector matching a non-Corsair device on VID `1B1C` PID
-  `1B2E`.
+**Rules when merging upstream:**
 
-The timeout/exception helper isolates each detector. Failures log a single
-`LOG_ERROR` and the next detector still runs.
-
-**Detached-thread caveat:** A timed-out worker thread is detached, not killed
-(C++ has no portable thread-cancel). It keeps its device handle until the
-blocking call returns; whatever it detects afterwards is never registered unless
-the detector registers from inside its own body (its returned controllers are
-not freed), and the `[&]` captures at the call sites still
-point at the caller's loop state. The alternative is the whole pass blocking
-forever.
-
-**Conflict resolution:** If upstream touches one of the detector-invocation
-lines, merge their change into the body of the lambda. The helper signature
-stays the same. Pattern:
-
-```cpp
-DetectedControllers detected_controllers = RunDetectorWithTimeout(
-    [&]() { return(<upstream's detector call>); },
-    detection_string.c_str(),
-    DETECTOR_TIMEOUT_MS);
-```
-
-If upstream adds a new detector category, wrap its invocation the same way.
-
-**Upstream PR candidate:** Yes - both the exception-handling and the timeout
-mechanism are universally useful. SignalRGB famously isolates detectors;
-upstream OpenRGB would benefit from the same. If accepted, we drop this patch
-on the next sync.
+- Pass the site's loop-local immutable name (`i2c_device_detector_strings[idx]`,
+  `<detectors>[idx].name`, `detector.name`, `detector->name`), never the shared
+  `detection_string` member. HID detectors also run on hidapi's hotplug thread,
+  which rewrites `detection_string` concurrently. The fallback in
+  `RegisterRGBController` still reads it and can race the same way; it only
+  applies to self-registering detectors.
+- If upstream touches an invocation line, keep their call and keep the
+  `TagDetector(` wrapper around it. A new detector category gets the same
+  wrapper with its own name.
+- If upstream ever adds a timeout or wrapper of its own, drop this tagging
+  only if `detector_name` is set another way.
 
 ### OpenRGB.pro - macOS headless build
 
