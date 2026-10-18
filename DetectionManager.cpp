@@ -14,7 +14,6 @@
 #include <cctype>
 #include <cstdio>
 #include <fstream>
-#include <future>
 #include <set>
 #include <system_error>
 #include <thread>
@@ -468,7 +467,7 @@ void DetectionManager::RegisterRGBController(RGBController *rgb_controller, cons
 
     /*-----------------------------------------------------*\
     | Detectors that register from inside their own body    |
-    | never pass through RunDetectorWithTimeout's return    |
+    | never pass through TagDetector's return    |
     | value, so fall back to the detector being run         |
     \*-----------------------------------------------------*/
     if(rgb_controller->detector_name.empty())
@@ -996,60 +995,19 @@ void DetectionManager::BackgroundDetectI2CBuses()
     }
 }
 
-static const unsigned int DETECTOR_TIMEOUT_MS = 5000;
-
 /*-------------------------------------------------------------------------*\
-| Runs one detector on a worker thread and abandons it if it overruns the   |
-| timeout, so a single wedged device cannot stall the whole detection run   |
-| (a stalled run also turns every later rescan into a no-op). A detector    |
-| that throws or times out yields no controllers. A timed-out worker is     |
-| detached deliberately: it may still be blocked in a driver call, so       |
-| joining it would reintroduce the stall this exists to prevent.            |
+| Tags every controller a detector produced with the detector's name, for   |
+| the detector map. The detector itself is called directly, as upstream     |
+| does.                                                                     |
 \*-------------------------------------------------------------------------*/
-DetectedControllers DetectionManager::RunDetectorWithTimeout(
-    std::function<DetectedControllers()> fn,
-    std::string                          name,
-    unsigned int                         timeout_ms)
+DetectedControllers DetectionManager::TagDetector(DetectedControllers result, const std::string& name)
 {
-    auto done   = std::make_shared<std::promise<DetectedControllers>>();
-    auto future = done->get_future();
-
-    std::thread worker([done, fn, name_copy = name]()
+    for(RGBController* controller : result)
     {
-        try
-        {
-            done->set_value(fn());
-        }
-        catch(const std::exception& e)
-        {
-            LOG_ERROR("[%s] detector threw: %s", name_copy.c_str(), e.what());
-            done->set_value(DetectedControllers());
-        }
-        catch(...)
-        {
-            LOG_ERROR("[%s] detector threw unknown exception", name_copy.c_str());
-            done->set_value(DetectedControllers());
-        }
-    });
-
-    if(future.wait_for(std::chrono::milliseconds(timeout_ms)) == std::future_status::ready)
-    {
-        worker.join();
-
-        DetectedControllers result = future.get();
-
-        for(RGBController* controller : result)
-        {
-            controller->detector_name = name;
-        }
-
-        return(result);
+        controller->detector_name = name;
     }
 
-    LOG_ERROR("[%s] detector timed out after %u ms, skipping device", name.c_str(), timeout_ms);
-    worker.detach();
-
-    return(DetectedControllers());
+    return(result);
 }
 
 void DetectionManager::BackgroundDetectI2CDevices(json& detector_settings)
@@ -1085,7 +1043,7 @@ void DetectionManager::BackgroundDetectI2CDevices(json& detector_settings)
         {
             SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
 
-            DetectedControllers detected_controllers = RunDetectorWithTimeout([&]() { return(i2c_device_detectors[i2c_detector_idx](i2c_buses)); }, detection_string.c_str(), DETECTOR_TIMEOUT_MS);
+            DetectedControllers detected_controllers = TagDetector(i2c_device_detectors[i2c_detector_idx](i2c_buses), detection_string);
 
             for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
             {
@@ -1158,7 +1116,7 @@ void DetectionManager::BackgroundDetectI2CDRAMDevices(json& detector_settings)
 
                         std::vector<SPDWrapper*> matching_slots = slots_with_jedec(slots, i2c_dram_device_detectors[i2c_detector_idx].jedec_id);
 
-                        DetectedControllers detected_controllers = RunDetectorWithTimeout([&]() { return(i2c_dram_device_detectors[i2c_detector_idx].function(i2c_buses[bus], matching_slots, i2c_dram_device_detectors[i2c_detector_idx].name)); }, detection_string.c_str(), DETECTOR_TIMEOUT_MS);
+                        DetectedControllers detected_controllers = TagDetector(i2c_dram_device_detectors[i2c_detector_idx].function(i2c_buses[bus], matching_slots, i2c_dram_device_detectors[i2c_detector_idx].name), detection_string);
 
                         for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
                         {
@@ -1214,7 +1172,7 @@ void DetectionManager::BackgroundDetectI2CPCIDevices(json& detector_settings)
                    i2c_buses[bus]->info.pci_subsystem_vendor == i2c_pci_device_detectors[i2c_detector_idx].subven_id &&
                    i2c_buses[bus]->info.pci_subsystem_device == i2c_pci_device_detectors[i2c_detector_idx].subdev_id)
                 {
-                    DetectedControllers detected_controllers = RunDetectorWithTimeout([&]() { return(i2c_pci_device_detectors[i2c_detector_idx].function(i2c_buses[bus], i2c_pci_device_detectors[i2c_detector_idx].i2c_addr, i2c_pci_device_detectors[i2c_detector_idx].name)); }, detection_string.c_str(), DETECTOR_TIMEOUT_MS);
+                    DetectedControllers detected_controllers = TagDetector(i2c_pci_device_detectors[i2c_detector_idx].function(i2c_buses[bus], i2c_pci_device_detectors[i2c_detector_idx].i2c_addr, i2c_pci_device_detectors[i2c_detector_idx].name), detection_string);
 
                     for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
                     {
@@ -1323,7 +1281,7 @@ void DetectionManager::BackgroundDetectHIDDevicesSafe(json& detector_settings)
                 {
                     SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
 
-                    DetectedControllers detected_controllers = RunDetectorWithTimeout([&]() { return(detector.function(current_hid_device, hid_specific_detectors[hid_detector_idx].name)); }, detection_string.c_str(), DETECTOR_TIMEOUT_MS);
+                    DetectedControllers detected_controllers = TagDetector(detector.function(current_hid_device, hid_specific_detectors[hid_detector_idx].name), detection_string);
 
                     for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
                     {
@@ -1426,7 +1384,7 @@ void DetectionManager::BackgroundDetectOtherDevices(json& detector_settings)
         {
             SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
 
-            DetectedControllers detected_controllers = RunDetectorWithTimeout([&]() { return(device_detectors[detector_idx]()); }, detection_string.c_str(), DETECTOR_TIMEOUT_MS);
+            DetectedControllers detected_controllers = TagDetector(device_detectors[detector_idx](), detection_string);
 
             for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
             {
@@ -1616,7 +1574,7 @@ void DetectionManager::RunHIDDetector(hid_device_info* current_hid_device, json&
 
                     SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
 
-                    DetectedControllers detected_controllers = RunDetectorWithTimeout([&]() { return(detector->function(current_hid_device, detector->name)); }, detection_string.c_str(), DETECTOR_TIMEOUT_MS);
+                    DetectedControllers detected_controllers = TagDetector(detector->function(current_hid_device, detector->name), detection_string);
 
                     for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
                     {
@@ -1732,7 +1690,7 @@ void DetectionManager::RunHIDWrappedDetector(const hidapi_wrapper* wrapper, hid_
 
                     SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
 
-                    DetectedControllers detected_controllers = RunDetectorWithTimeout([&]() { return(detector->function(*wrapper, current_hid_device, detector->name)); }, detection_string.c_str(), DETECTOR_TIMEOUT_MS);
+                    DetectedControllers detected_controllers = TagDetector(detector->function(*wrapper, current_hid_device, detector->name), detection_string);
 
                     for(std::size_t detected_controller_idx = 0; detected_controller_idx < detected_controllers.size(); detected_controller_idx++)
                     {

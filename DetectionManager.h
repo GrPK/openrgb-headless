@@ -403,15 +403,11 @@ private:
     bool IsAnyDimmDetectorEnabled(json &detector_settings);
 
     /*-----------------------------------------------------*\
-    | Runs one detector under a timeout and tags every      |
-    | controller it produced with the detector's own name.  |
-    | A static member rather than a file-local function so  |
-    | friendship reaches RGBController's detector_name. The |
-    | name is taken by value: call sites pass a pointer into|
-    | detection_string, which the hotplug thread rewrites   |
-    | while this waits out the detector timeout.            |
+    | Tags every controller a detector produced with the    |
+    | detector's own name. A static member so friendship    |
+    | reaches RGBController's detector_name.                |
     \*-----------------------------------------------------*/
-    static DetectedControllers RunDetectorWithTimeout(std::function<DetectedControllers()> fn, std::string name, unsigned int timeout_ms);
+    static DetectedControllers TagDetector(DetectedControllers result, const std::string& name);
 
     /*-----------------------------------------------------*\
     | Dumps device name -> detector name for every known    |
