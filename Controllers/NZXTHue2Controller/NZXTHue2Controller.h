@@ -62,6 +62,11 @@ enum
 #define NZXT_HUE_2_DEVICE_LIST_READ_TIMEOUT_MS  1000
 #define NZXT_HUE_2_DEVICE_LIST_MAX_RETRIES      10
 
+/*---------------------------------------------------------*\
+| Most LEDs one channel's two direct packets can carry.     |
+\*---------------------------------------------------------*/
+#define NZXT_HUE_2_MAX_LEDS_PER_CHANNEL         40
+
 enum
 {
     HUE_2_MODE_FIXED            = 0x00,     /* Fixed colors mode            */

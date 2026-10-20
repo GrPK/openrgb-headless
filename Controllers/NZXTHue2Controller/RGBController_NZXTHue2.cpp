@@ -320,7 +320,7 @@ void RGBController_NZXTHue2::SetupZones()
 
         zones[zone_idx].type        = ZONE_TYPE_LINEAR;
         zones[zone_idx].leds_min    = 0;
-        zones[zone_idx].leds_max    = 40;
+        zones[zone_idx].leds_max    = NZXT_HUE_2_MAX_LEDS_PER_CHANNEL;
 
         /*---------------------------------------------*\
         | A channel the accessory scan cannot size (it  |
@@ -346,16 +346,18 @@ void RGBController_NZXTHue2::SetupZones()
             }
         }
 
-        if((zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURABLE_SIZE) && (zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_SIZE))
-        {
-            if(zones[zone_idx].leds_count > zones[zone_idx].leds_max)
-            {
-                zones[zone_idx].leds_count = zones[zone_idx].leds_max;
-            }
-        }
-        else
+        if(!((zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURABLE_SIZE) && (zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_SIZE)))
         {
             zones[zone_idx].leds_count = controller->channel_leds[zone_idx];
+        }
+
+        /*---------------------------------------------*\
+        | A scanned chain can report more LEDs than the |
+        | direct packets carry, clamp it as well        |
+        \*---------------------------------------------*/
+        if(zones[zone_idx].leds_count > zones[zone_idx].leds_max)
+        {
+            zones[zone_idx].leds_count = zones[zone_idx].leds_max;
         }
     }
 

@@ -371,10 +371,15 @@ void NZXTHue2Controller::SetChannelLEDs
     unsigned int    num_colors
     )
 {
-    unsigned char color_data[120];
+    unsigned char color_data[NZXT_HUE_2_MAX_LEDS_PER_CHANNEL * 3];
+
+    if(num_colors > NZXT_HUE_2_MAX_LEDS_PER_CHANNEL)
+    {
+        num_colors = NZXT_HUE_2_MAX_LEDS_PER_CHANNEL;
+    }
 
     /*-----------------------------------------------------*\
-    | Fill in color data (up to 40 colors)                  |
+    | Fill in color data                                    |
     \*-----------------------------------------------------*/
     for (std::size_t idx = 0; idx < num_colors; idx++)
     {
