@@ -336,15 +336,14 @@ void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, un
     {
         /*-------------------------------------------------*\
         | The per-key effect ignores each key's value and   |
-        | uses the matrix brightness. The firmware reloads  |
-        | brightness from EEPROM when the effect changes,   |
-        | and only saves when exactly one value was set     |
-        | since the last save, so save after each set.      |
+        | uses the matrix brightness, which the firmware    |
+        | reloads from EEPROM when the effect changes, so   |
+        | save brightness before switching effects. The     |
+        | effect itself is left unsaved.                    |
         \*-------------------------------------------------*/
         CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS);
         CmdSaveRGBMatrix();
         CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
-        CmdSaveRGBMatrix();
         CmdSetPerKeyRGBType(KEYCHRON_PER_KEY_RGB_SOLID);
     }
     else
