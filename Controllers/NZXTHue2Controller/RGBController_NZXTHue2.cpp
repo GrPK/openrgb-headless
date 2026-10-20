@@ -271,48 +271,92 @@ void RGBController_NZXTHue2::SetupModes()
 void RGBController_NZXTHue2::SetupZones()
 {
     unsigned short pid = controller->GetPID();
+    bool first_run = false;
+
+    if(zones.size() == 0)
+    {
+        first_run = true;
+    }
+
+    /*-------------------------------------------------*\
+    | Clear any existing color/LED configuration        |
+    \*-------------------------------------------------*/
+    leds.clear();
+    colors.clear();
+    zones.resize(controller->GetNumRGBChannels());
 
     /*-------------------------------------------------*\
     | Set up zones                                      |
     \*-------------------------------------------------*/
-    for(unsigned int zone_idx = 0; zone_idx < controller->GetNumRGBChannels(); zone_idx++)
+    for(unsigned int zone_idx = 0; zone_idx < zones.size(); zone_idx++)
     {
-        zone* new_zone = new zone;
-
         switch(pid)
         {
         case NZXT_KRAKEN_X3_SERIES_PID:
         case NZXT_KRAKEN_X3_SERIES_RGB_PID:
             if(zone_idx == 0)
             {
-                new_zone->name = "RGB Header";
+                zones[zone_idx].name = "RGB Header";
             }
             else if(zone_idx == 1)
             {
-                new_zone->name = "Ring";
+                zones[zone_idx].name = "Ring";
             }
             else if(zone_idx == 2)
             {
-                new_zone->name = "Logo";
+                zones[zone_idx].name = "Logo";
             }
             else
             {
-                new_zone->name = "Channel " + std::to_string(zone_idx + 1);
+                zones[zone_idx].name = "Channel " + std::to_string(zone_idx + 1);
             }
             break;
 
         default:
-            new_zone->name          = "Hue 2 Channel ";
-            new_zone->name.append(std::to_string(zone_idx + 1));
+            zones[zone_idx].name    = "Hue 2 Channel ";
+            zones[zone_idx].name.append(std::to_string(zone_idx + 1));
             break;
         }
 
-        new_zone->type          = ZONE_TYPE_LINEAR;
-        new_zone->leds_min      = 0;
-        new_zone->leds_max      = 40;
-        new_zone->leds_count    = controller->channel_leds[zone_idx];
+        zones[zone_idx].type        = ZONE_TYPE_LINEAR;
+        zones[zone_idx].leds_min    = 0;
+        zones[zone_idx].leds_max    = 40;
 
-        zones.push_back(*new_zone);
+        /*---------------------------------------------*\
+        | A channel the accessory scan cannot size (it  |
+        | reports nothing, or an accessory id missing   |
+        | from the table) takes a user-set size, as on  |
+        | Hue+. Scanned channels keep the scanned size. |
+        \*---------------------------------------------*/
+        if(first_run)
+        {
+            bool unsized = (controller->channel_leds[zone_idx] == 0);
+
+            for(unsigned int dev_idx = 0; dev_idx < 6; dev_idx++)
+            {
+                if((controller->channel_dev_ids[zone_idx][dev_idx] != 0) && (controller->channel_dev_szs[zone_idx][dev_idx] == 0))
+                {
+                    unsized = true;
+                }
+            }
+
+            if(unsized)
+            {
+                zones[zone_idx].flags = ZONE_FLAG_MANUALLY_CONFIGURABLE_SIZE;
+            }
+        }
+
+        if((zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURABLE_SIZE) && (zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_SIZE))
+        {
+            if(zones[zone_idx].leds_count > zones[zone_idx].leds_max)
+            {
+                zones[zone_idx].leds_count = zones[zone_idx].leds_max;
+            }
+        }
+        else
+        {
+            zones[zone_idx].leds_count = controller->channel_leds[zone_idx];
+        }
     }
 
     /*-------------------------------------------------*\
@@ -363,7 +407,10 @@ void RGBController_NZXTHue2::SetupZones()
     \*-------------------------------------------------*/
     for(unsigned int zone_idx = 0; zone_idx < zones.size(); zone_idx++)
     {
-        SetupZoneSegments(zone_idx);
+        if(!(zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_SEGMENTS))
+        {
+            SetupZoneSegments(zone_idx);
+        }
     }
 
     SetupColors();
@@ -466,6 +513,10 @@ void RGBController_NZXTHue2::SetupZoneSegments(unsigned int zone_idx)
             device_name = "F120 Core fan case version (120mm)";
             break;
 
+        case 0x1B: //F240 RGB Core (240mm)
+            device_name = "F240 Core fan (240mm)";
+            break;
+
         case 0x1C: //F280 RGB Core Fan Case Version (280mm)
             device_name = "F280 Core fan case version (280mm)";
             break;
@@ -483,6 +534,15 @@ void RGBController_NZXTHue2::SetupZoneSegments(unsigned int zone_idx)
             break;
 
         default:
+            break;
+        }
+
+        /*---------------------------------------------*\
+        | A user-set size can be shorter than the       |
+        | scanned accessories; keep segments inside it. |
+        \*---------------------------------------------*/
+        if((start_idx + controller->channel_dev_szs[zone_idx][dev_idx]) > zones[zone_idx].leds_count)
+        {
             break;
         }
 
@@ -506,24 +566,10 @@ void RGBController_NZXTHue2::DeviceConfigureZone(int zone_idx)
     if(((size_t)zone_idx < zones.size()) && (zone_idx < HUE_2_NUM_CHANNELS))
     {
         /*---------------------------------------------------------*\
-        | Zone sizes come from the hardware accessory scan, so a    |
-        | client-requested size can never hold. Restore the scanned |
-        | count, rebuild the segments ConfigureZone just cleared,   |
-        | and re-point the color buffers.                           |
-        |                                                           |
-        | SetupZones() must not run here: it appends to zones and   |
-        | leds instead of replacing them, so every configure grew   |
-        | the device and pushed colors to channels that do not      |
-        | exist.                                                    |
+        | SetupZones() rebuilds zones and LEDs in place, keeping a  |
+        | user-set size only on a channel the scan could not size.  |
         \*---------------------------------------------------------*/
-        zones[zone_idx].leds_count = controller->channel_leds[zone_idx];
-
-        if(!(zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_SEGMENTS))
-        {
-            SetupZoneSegments((unsigned int)zone_idx);
-        }
-
-        SetupColors();
+        SetupZones();
     }
 }
 
