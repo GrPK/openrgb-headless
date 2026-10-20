@@ -180,6 +180,7 @@ private:
     void                                    CmdGetWirelessDeviceInfo(unsigned short* wireless_vid, unsigned short* wireless_pid);
     std::string                             CmdGetWirelessKeyboardFirmwareVersion();
     void                                    CmdSaveMode();
+    void                                    CmdSaveRGBMatrix();
     void                                    CmdSendLEDs(unsigned char start_index, unsigned char number_leds, RGBColor* color_data);
     void                                    CmdSetBrightness(unsigned char brightness);
     void                                    CmdSetColorHS(unsigned char h, unsigned char s);

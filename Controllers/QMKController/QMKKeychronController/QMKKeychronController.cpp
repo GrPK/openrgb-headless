@@ -334,15 +334,18 @@ void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, un
 {
     if(mode == 0xFFFF)
     {
-        CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
-        CmdSetPerKeyRGBType(KEYCHRON_PER_KEY_RGB_SOLID);
-
         /*-------------------------------------------------*\
         | The per-key effect ignores each key's value and   |
-        | uses the matrix brightness, which another mode    |
-        | may have left at 0                                |
+        | uses the matrix brightness. The firmware reloads  |
+        | brightness from EEPROM when the effect changes,   |
+        | and only saves when exactly one value was set     |
+        | since the last save, so save after each set.      |
         \*-------------------------------------------------*/
         CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS);
+        CmdSaveRGBMatrix();
+        CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
+        CmdSaveRGBMatrix();
+        CmdSetPerKeyRGBType(KEYCHRON_PER_KEY_RGB_SOLID);
     }
     else
     {
@@ -569,6 +572,15 @@ std::string QMKKeychronController::CmdGetWirelessKeyboardFirmwareVersion()
 void QMKKeychronController::CmdSaveMode()
 {
     ViaSendCommandSub(KC_KEYCHRON_RGB, KEYCHRON_RGB_SAVE, NULL, 0, NULL, 0);
+}
+
+void QMKKeychronController::CmdSaveRGBMatrix()
+{
+    unsigned char args[1];
+
+    args[0] = QMK_VIA_RGB_MATRIX_CHANNEL;
+
+    ViaSendCommand(QMK_VIA_CMD_CUSTOM_SAVE, args, sizeof(args), NULL, 0);
 }
 
 void QMKKeychronController::CmdSendLEDs(unsigned char start_index, unsigned char number_leds, RGBColor* color_data)
