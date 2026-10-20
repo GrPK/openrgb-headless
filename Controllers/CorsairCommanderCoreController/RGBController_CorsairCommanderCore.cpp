@@ -139,19 +139,31 @@ void RGBController_CorsairCommanderCore::SetupZones()
     }
     else
     {
+        /*-------------------------------------------------*\
+        | No pump LEDs when the LED count could not be read |
+        \*-------------------------------------------------*/
+        unsigned short int pump_leds                = led_count.empty() ? 0 : led_count.at(0);
+
         zones[0].name                               = "Pump";
         zones[0].type                               = ZONE_TYPE_MATRIX;
-        zones[0].leds_min                           = led_count.at(0);
-        zones[0].leds_max                           = led_count.at(0);
-        zones[0].leds_count                         = led_count.at(0);
+        zones[0].leds_min                           = pump_leds;
+        zones[0].leds_max                           = pump_leds;
+        zones[0].leds_count                         = pump_leds;
 
-        if(led_count.at(0) == 24)
+        if(pump_leds == 24)
         {
             zones[0].matrix_map.Set(11, 11, (unsigned int *)&matrix_map24);
         }
-        else
+        else if(pump_leds == 29)
         {
             zones[0].matrix_map.Set(7, 7, (unsigned int *)matrix_map29);
+        }
+        else
+        {
+            zones[0].type                           = ZONE_TYPE_LINEAR;
+            zones[0].matrix_map.width               = 0;
+            zones[0].matrix_map.height              = 0;
+            zones[0].matrix_map.map.resize(0);
         }
     }
 

@@ -13,6 +13,7 @@
 #pragma once
 
 #include <chrono>
+#include <mutex>
 #include <vector>
 #include <hidapi.h>
 #include "RGBController.h"
@@ -31,6 +32,7 @@
 
 #define CORSAIR_QL_FAN_ZONE_OFFSET                  102
 #define CORSAIR_COMMANDER_CORE_NUM_CHANNELS         6
+#define CORSAIR_COMMANDER_CORE_MAX_LEDS_PER_CHANNEL 34
 
 #define CORSAIR_COMMANDER_CORE_PID                  0x0C1C
 #define CORSAIR_COMMANDER_CORE2_PID                 0x0C32
@@ -82,6 +84,7 @@ private:
     int                                                 pid;
     std::chrono::time_point<std::chrono::steady_clock>  last_commit_time;
     DeviceGuardManager*                                 guard_manager_ptr;
+    std::recursive_mutex                                controller_mutex;
 
     void        SendCommand(unsigned char command[2], unsigned char data[], unsigned short int data_len, unsigned char res[], bool dev_read = true);
     void        WriteData(unsigned char endpoint[2], unsigned char data_type[2], unsigned char data[], unsigned short int data_len);

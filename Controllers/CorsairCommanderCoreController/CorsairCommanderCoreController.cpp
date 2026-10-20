@@ -10,6 +10,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <algorithm>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
@@ -123,16 +124,46 @@ int CorsairCommanderCoreController::GetPidInt()
 
 std::vector<unsigned short int> CorsairCommanderCoreController::GetLedCounts()
 {
+    std::lock_guard<std::recursive_mutex> lock(controller_mutex);
+
     /*-----------------------------------------------------*\
-    | Get the LED count per device                          |
+    | Get the LED count per device. Retry when the reply is |
+    | not an LED count reply or holds an impossible count   |
     \*-----------------------------------------------------*/
     std::vector<unsigned short int> led_counts;
     unsigned char endpoint[2] = {0x20, 0x00};
     unsigned char* res = new unsigned char[command_res_size];
-    ReadData(endpoint, res);
-    for(int i = 0; i < res[2]; i++)
+
+    for(int attempt = 0; attempt < 3; attempt++)
     {
-        led_counts.push_back(res[i*4+6] << 8 | res[i*4+5]);
+        memset(res, 0x00, command_res_size);
+        ReadData(endpoint, res);
+
+        unsigned int num_devices = res[2];
+        bool         valid       = (res[0] == 0x0F) && (res[1] == 0x00)
+                                && (num_devices <= CORSAIR_COMMANDER_CORE_NUM_CHANNELS + 1)
+                                && ((int)(num_devices * 4 + 3) <= command_res_size);
+
+        led_counts.clear();
+
+        for(unsigned int i = 0; valid && i < num_devices; i++)
+        {
+            unsigned short int count = res[i*4+6] << 8 | res[i*4+5];
+
+            if(count > CORSAIR_COMMANDER_CORE_MAX_LEDS_PER_CHANNEL)
+            {
+                valid = false;
+            }
+
+            led_counts.push_back(count);
+        }
+
+        if(valid)
+        {
+            break;
+        }
+
+        led_counts.clear();
     }
     delete[] res;
 
@@ -156,6 +187,8 @@ void CorsairCommanderCoreController::KeepaliveThread()
 
 void CorsairCommanderCoreController::SendCommit()
 {
+    std::lock_guard<std::recursive_mutex> lock(controller_mutex);
+
     if(!lastcolors.empty())
     {
         /*-----------------------------------------------------*\
@@ -171,10 +204,11 @@ void CorsairCommanderCoreController::SendCommit()
         last_commit_time    = std::chrono::steady_clock::now();
 
         /*-----------------------------------------------------*\
-        | Keepalive                                             |
+        | Keepalive, read the reply so it is not taken as the   |
+        | reply to the next command                             |
         \*-----------------------------------------------------*/
         unsigned char command[2] = {0x02, 0x13};
-        SendCommand(command, NULL, 2, NULL, false);
+        SendCommand(command, NULL, 2, NULL);
     }
 }
 
@@ -334,6 +368,8 @@ void CorsairCommanderCoreController::SetDirectColor
         std::vector<zone> zones
     )
 {
+    std::lock_guard<std::recursive_mutex> lock(controller_mutex);
+
     if(controller_ready == 1 && ((std::chrono::steady_clock::now() - last_commit_time) > std::chrono::milliseconds(33)))
     {
         lastcolors              = colors;
@@ -347,26 +383,35 @@ void CorsairCommanderCoreController::SetDirectColor
             packet_len          = CORSAIR_COMMANDER_CORE_XT_RGB_DATA_LENGTH;
         }
 
-        unsigned char* usb_buf  = new unsigned char[packet_len];
+        /*-----------------------------------------------------*\
+        | Zone 0 gets what the fan headers leave of the packet, |
+        | 29 LEDs on the Commander Core, 204 on the XT          |
+        \*-----------------------------------------------------*/
+        unsigned int zone0_max  = packet_len / 3 - CORSAIR_COMMANDER_CORE_NUM_CHANNELS * CORSAIR_COMMANDER_CORE_MAX_LEDS_PER_CHANNEL;
 
-        for(unsigned int zone_idx = 0; zone_idx < zones.size(); zone_idx++)
+        unsigned char* usb_buf  = new unsigned char[packet_len]();
+
+        for(unsigned int zone_idx = 0; zone_idx < zones.size() && zone_idx <= CORSAIR_COMMANDER_CORE_NUM_CHANNELS; zone_idx++)
         {
+            unsigned int zone_max   = (zone_idx == 0) ? zone0_max : CORSAIR_COMMANDER_CORE_MAX_LEDS_PER_CHANNEL;
+            unsigned int zone_leds  = std::min(zones[zone_idx].leds_count, zone_max);
+
             /*-------------------------------------------------*\
             | Add led colors                                    |
             \*-------------------------------------------------*/
-            for(unsigned int i = led_idx; i < led_idx + zones[zone_idx].leds_count; i++)
+            for(unsigned int i = 0; i < zone_leds && (led_idx + i) < colors.size(); i++)
             {
-                usb_buf[packet_offset]   = RGBGetRValue(colors[i]);
-                usb_buf[packet_offset+1] = RGBGetGValue(colors[i]);
-                usb_buf[packet_offset+2] = RGBGetBValue(colors[i]);
-                packet_offset += 3;
+                usb_buf[packet_offset + i*3]     = RGBGetRValue(colors[led_idx + i]);
+                usb_buf[packet_offset + i*3 + 1] = RGBGetGValue(colors[led_idx + i]);
+                usb_buf[packet_offset + i*3 + 2] = RGBGetBValue(colors[led_idx + i]);
             }
 
+            packet_offset += 3 * zone_leds;
             led_idx = led_idx + zones[zone_idx].leds_count;
 
             if(zone_idx != 0)
             {
-                packet_offset += 3 * (34 - zones[zone_idx].leds_count);
+                packet_offset += 3 * (CORSAIR_COMMANDER_CORE_MAX_LEDS_PER_CHANNEL - zone_leds);
             }
         }
 
@@ -385,6 +430,8 @@ void CorsairCommanderCoreController::SetDirectColor
 
 void CorsairCommanderCoreController::SetFanMode(bool external_rgb_port)
 {
+    std::lock_guard<std::recursive_mutex> lock(controller_mutex);
+
     controller_ready    = 0;
     DeviceGuardLock _   = guard_manager_ptr->AwaitExclusiveAccess();
 
@@ -461,6 +508,8 @@ void CorsairCommanderCoreController::SetFanMode(bool external_rgb_port)
 
 void CorsairCommanderCoreController::SetLedAmount(int led_amount)
 {
+    std::lock_guard<std::recursive_mutex> lock(controller_mutex);
+
     controller_ready    = 0;
     DeviceGuardLock _   = guard_manager_ptr->AwaitExclusiveAccess();
 
