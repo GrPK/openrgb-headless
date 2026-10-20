@@ -336,6 +336,13 @@ void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, un
     {
         CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
         CmdSetPerKeyRGBType(KEYCHRON_PER_KEY_RGB_SOLID);
+
+        /*-------------------------------------------------*\
+        | The per-key effect ignores each key's value and   |
+        | uses the matrix brightness, which another mode    |
+        | may have left at 0                                |
+        \*-------------------------------------------------*/
+        CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS);
     }
     else
     {
