@@ -99,8 +99,6 @@ void RGBController_CorsairCommanderCore::SetupZones()
     /*-----------------------------------------------------*\
     | Set up zones                                          |
     \*-----------------------------------------------------*/
-    std::vector<unsigned short int> led_count = controller->GetLedCounts();
-
     if(controller->GetPidInt() == CORSAIR_COMMANDER_CORE_XT_PID)
     {
         zones[0].leds_min                           = 0;
@@ -139,6 +137,8 @@ void RGBController_CorsairCommanderCore::SetupZones()
     }
     else
     {
+        std::vector<unsigned short int> led_count   = controller->GetLedCounts();
+
         /*-------------------------------------------------*\
         | No pump LEDs when the LED count could not be read |
         \*-------------------------------------------------*/

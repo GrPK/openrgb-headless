@@ -59,18 +59,19 @@ CorsairCommanderCoreController::CorsairCommanderCoreController(hid_device* dev_h
 CorsairCommanderCoreController::~CorsairCommanderCoreController()
 {
     /*-----------------------------------------------------*\
+    | Close keepalive thread before the last command so the |
+    | two cannot read each other's reply                    |
+    \*-----------------------------------------------------*/
+    keepalive_thread_run = 0;
+    keepalive_thread->join();
+    delete keepalive_thread;
+
+    /*-----------------------------------------------------*\
     | Hardware mode                                         |
     \*-----------------------------------------------------*/
     unsigned char command[2] = {0x01, 0x03};
     unsigned char cmd_data[2] = {0x00, 0x01};
     SendCommand(command, cmd_data, 2, NULL);
-
-    /*-----------------------------------------------------*\
-    | Close keepalive thread                                |
-    \*-----------------------------------------------------*/
-    keepalive_thread_run = 0;
-    keepalive_thread->join();
-    delete keepalive_thread;
 
     /*-----------------------------------------------------*\
     | Close HID device                                      |
@@ -128,7 +129,7 @@ std::vector<unsigned short int> CorsairCommanderCoreController::GetLedCounts()
 
     /*-----------------------------------------------------*\
     | Get the LED count per device. Retry when the reply is |
-    | not an LED count reply or holds an impossible count   |
+    | not an LED count reply or the pump count is too high  |
     \*-----------------------------------------------------*/
     std::vector<unsigned short int> led_counts;
     unsigned char endpoint[2] = {0x20, 0x00};
@@ -148,17 +149,13 @@ std::vector<unsigned short int> CorsairCommanderCoreController::GetLedCounts()
 
         for(unsigned int i = 0; valid && i < num_devices; i++)
         {
-            unsigned short int count = res[i*4+6] << 8 | res[i*4+5];
-
-            if(count > CORSAIR_COMMANDER_CORE_MAX_LEDS_PER_CHANNEL)
-            {
-                valid = false;
-            }
-
-            led_counts.push_back(count);
+            led_counts.push_back(res[i*4+6] << 8 | res[i*4+5]);
         }
 
-        if(valid)
+        /*-------------------------------------------------*\
+        | Only the pump count (index 0) is used             |
+        \*-------------------------------------------------*/
+        if(valid && (led_counts.empty() || led_counts[0] <= CORSAIR_COMMANDER_CORE_MAX_LEDS_PER_CHANNEL))
         {
             break;
         }
@@ -384,8 +381,7 @@ void CorsairCommanderCoreController::SetDirectColor
         }
 
         /*-----------------------------------------------------*\
-        | Zone 0 gets what the fan headers leave of the packet, |
-        | 29 LEDs on the Commander Core, 204 on the XT          |
+        | Zone 0 gets what the fan headers leave of the packet  |
         \*-----------------------------------------------------*/
         unsigned int zone0_max  = packet_len / 3 - CORSAIR_COMMANDER_CORE_NUM_CHANNELS * CORSAIR_COMMANDER_CORE_MAX_LEDS_PER_CHANNEL;
 
