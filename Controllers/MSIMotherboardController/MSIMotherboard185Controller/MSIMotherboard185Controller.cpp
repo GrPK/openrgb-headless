@@ -516,6 +516,8 @@ MSIMotherboard185Controller::MSIMotherboard185Controller(hid_device* handle, con
     no_jrainbow2 = true;
     no_jcorsair  = true;
 
+    bool jrainbow3_in_jcorsair_slot = false;
+
     for(std::size_t i = 0; i < supported_zones->size(); ++i)
     {
         switch((*supported_zones)[i])
@@ -533,8 +535,12 @@ MSIMotherboard185Controller::MSIMotherboard185Controller(hid_device* handle, con
                 break;
 
             case MSI_ZONE_J_CORSAIR:
+                no_jcorsair = false;
+                break;
+
             case MSI_ZONE_J_RAINBOW_3:
                 no_jcorsair = false;
+                jrainbow3_in_jcorsair_slot = true;
                 break;
 
             default:
@@ -562,6 +568,17 @@ MSIMotherboard185Controller::MSIMotherboard185Controller(hid_device* handle, con
     enable_per_led_msg.j_corsair.corsair_quantity                   = 0x00;
     enable_per_led_msg.j_corsair.padding[2]                         = 0x82;
     enable_per_led_msg.j_corsair.is_individual                      = 0x78;
+
+    /*-----------------------------------------------------*\
+    | When the JCORSAIR slot carries JRAINBOW3, bit 2 of    |
+    | its byte 62 must be set or the header stays dark, the |
+    | same value SetMode writes for J_RAINBOW_3             |
+    \*-----------------------------------------------------*/
+    if(jrainbow3_in_jcorsair_slot)
+    {
+        enable_per_led_msg.j_corsair.padding[3]                     = 0x04;
+    }
+
     enable_per_led_msg.j_corsair_outerll120.speedAndBrightnessFlags = 0x28;
     enable_per_led_msg.j_corsair_outerll120.colorFlags              = 0x80;
     enable_per_led_msg.on_board_led.effect                          = MSI_DIRECT_MODE;
