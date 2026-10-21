@@ -32,6 +32,9 @@ using namespace std::chrono_literals;
 #define JRAINBOW2_MAX_LED_COUNT                 240
 #define JCORSAIR_MAX_LED_COUNT                  240
 
+#define MSI_GEN2_JRAINBOW3_HEADER_INDEX         2
+#define MSI_GEN2_MIN_SEND_INTERVAL              100ms
+
 #define MSI_DIRECT_MODE                         0x25
 #define PER_LED_BASIC_SYNC_MODE                 (MSI_COLOR_FLAG_USE_CUSTOM_COLOR | MSI_COLOR_FLAG_SYNC_SETTING_ONBOARD | MSI_COLOR_FLAG_SYNC_SETTING_JPIPE1 | MSI_COLOR_FLAG_SYNC_SETTING_JPIPE2)
 #define PER_LED_FULL_SYNC_MODE                  (PER_LED_BASIC_SYNC_MODE | MSI_COLOR_FLAG_SYNC_SETTING_JRAINBOW1 | MSI_COLOR_FLAG_SYNC_SETTING_JRAINBOW2 | MSI_COLOR_FLAG_SYNC_SETTING_JCORSAIR)
@@ -549,6 +552,18 @@ MSIMotherboard185Controller::MSIMotherboard185Controller(hid_device* handle, con
     }
 
     /*-----------------------------------------------------*\
+    | Look for ARGB Gen2 devices chained on JRAINBOW3       |
+    \*-----------------------------------------------------*/
+    gen2_jrainbow3  = false;
+    gen2_effect     = MSI_MODE_STATIC;
+    gen2_sent_once  = false;
+
+    if(jrainbow3_in_jcorsair_slot && (per_led_mode == DIRECT_MODE_PER_LED))
+    {
+        DetectGen2JRainbow3();
+    }
+
+    /*-----------------------------------------------------*\
     | Set up per-LED switching message for synchronized     |
     | mode.                                                 |
     \*-----------------------------------------------------*/
@@ -642,6 +657,11 @@ MSIMotherboard185Controller::MSIMotherboard185Controller(hid_device* handle, con
     zone_based_per_led_data.j_rgb_2.colorFlags                     |= MSI_COLOR_FLAG_USE_CUSTOM_COLOR;
     zone_based_per_led_data.save_data                               = 0;
 
+    if(gen2_jrainbow3)
+    {
+        ApplyGen2SlotData(data);
+    }
+
     direct_mode             = false;
     direct_mode_configured  = false;
     sync_direct_mode        = true;
@@ -668,6 +688,16 @@ void MSIMotherboard185Controller::SetMode
 {
     if((per_led_mode == DIRECT_MODE_ZONE_BASED) && (zone > MSI_ZONE_ON_BOARD_LED_0))
     {
+        return;
+    }
+
+    /*-----------------------------------------------------*\
+    | Gen2 devices take their effect from the Gen2 table,   |
+    | the JRAINBOW3 slot keeps its Gen2 settings            |
+    \*-----------------------------------------------------*/
+    if(gen2_jrainbow3 && (zone == MSI_ZONE_J_RAINBOW_3))
+    {
+        gen2_effect = mode;
         return;
     }
 
@@ -848,7 +878,9 @@ bool MSIMotherboard185Controller::Update
 
             if(sync_direct_mode)
             {
-                return(hid_send_feature_report(dev, (unsigned char*)&per_led_data_onboard_and_sync, sizeof(per_led_data_onboard_and_sync)) == sizeof(per_led_data_onboard_and_sync));
+                bool sent = (hid_send_feature_report(dev, (unsigned char*)&per_led_data_onboard_and_sync, sizeof(per_led_data_onboard_and_sync)) == sizeof(per_led_data_onboard_and_sync));
+                SendGen2Table();
+                return(sent);
             }
             else
             {
@@ -862,12 +894,14 @@ bool MSIMotherboard185Controller::Update
                     hid_send_feature_report(dev, (unsigned char*)&per_led_data_jrainbow2, sizeof(per_led_data_jrainbow2));
                     std::this_thread::sleep_for(13ms);
                 }
-                if(!no_jcorsair)
+                if(!no_jcorsair && !gen2_jrainbow3)
                 {
                     hid_send_feature_report(dev, (unsigned char*)&per_led_data_jcorsair, sizeof(per_led_data_jcorsair));
                     std::this_thread::sleep_for(13ms);
                 }
-                return(hid_send_feature_report(dev, (unsigned char*)&per_led_data_onboard_and_sync, sizeof(per_led_data_onboard_and_sync)) == sizeof(per_led_data_onboard_and_sync));
+                bool sent = (hid_send_feature_report(dev, (unsigned char*)&per_led_data_onboard_and_sync, sizeof(per_led_data_onboard_and_sync)) == sizeof(per_led_data_onboard_and_sync));
+                SendGen2Table();
+                return(sent);
             }
         }
         else
@@ -892,7 +926,9 @@ bool MSIMotherboard185Controller::Update
 
         memcpy((unsigned char*)&data, (unsigned char*)&new_data, sizeof(data));
         data.save_data = save;
-        return(hid_send_feature_report(dev, (unsigned char*)&data, sizeof(data)) == sizeof(data));
+        bool sent = (hid_send_feature_report(dev, (unsigned char*)&data, sizeof(data)) == sizeof(data));
+        SendGen2Table();
+        return(sent);
     }
 }
 
@@ -909,6 +945,15 @@ void MSIMotherboard185Controller::SetZoneColor
 {
     if((per_led_mode == DIRECT_MODE_ZONE_BASED) && (zone > MSI_ZONE_ON_BOARD_LED_0))
     {
+        return;
+    }
+
+    if(gen2_jrainbow3 && (zone == MSI_ZONE_J_RAINBOW_3))
+    {
+        for(std::size_t i = 0; i < gen2_colors.size(); ++i)
+        {
+            gen2_colors[i] = { red1, grn1, blu1 };
+        }
         return;
     }
 
@@ -985,6 +1030,15 @@ void MSIMotherboard185Controller::SetLedColor
     unsigned char   blu
     )
 {
+    if(gen2_jrainbow3 && (zone == MSI_ZONE_J_RAINBOW_3))
+    {
+        if((index >= 0) && ((std::size_t)index < gen2_colors.size()))
+        {
+            gen2_colors[index] = { red, grn, blu };
+        }
+        return;
+    }
+
     /*-----------------------------------------------------*\
     | If this board supports Per-LED direct mode, update    |
     | the per-LED packet buffers                            |
@@ -1329,6 +1383,11 @@ void MSIMotherboard185Controller::SetZoneLEDCount
     unsigned char   led_num
     )
 {
+    if(gen2_jrainbow3 && (zone == MSI_ZONE_J_RAINBOW_3))
+    {
+        return;
+    }
+
     RainbowZoneData *requested_zone = GetRainbowZoneData(zone);
 
     if(!requested_zone)
@@ -1347,6 +1406,12 @@ void MSIMotherboard185Controller::SetDirectMode
 {
     direct_mode             = mode;
     direct_mode_configured  = false;
+
+    if(mode)
+    {
+        gen2_effect         = MSI_MODE_STATIC;
+    }
+
     SelectPerLedProtocol();
 }
 
@@ -1378,7 +1443,11 @@ size_t MSIMotherboard185Controller::GetMaxDirectLeds
             }
         case MSI_ZONE_J_RAINBOW_2:
         case MSI_ZONE_J_RAINBOW_3:
-            if(per_led_mode == DIRECT_MODE_PER_LED)
+            if(gen2_jrainbow3 && (zone == MSI_ZONE_J_RAINBOW_3))
+            {
+                return gen2_devices.size();
+            }
+            else if(per_led_mode == DIRECT_MODE_PER_LED)
             {
                 return JRAINBOW2_MAX_LED_COUNT;
             }
@@ -1427,7 +1496,7 @@ bool MSIMotherboard185Controller::SelectPerLedProtocol()
 
     zone_data = GetRainbowZoneData(MSI_ZONE_J_RAINBOW_3);
 
-    if(zone_data != nullptr)
+    if((zone_data != nullptr) && !gen2_jrainbow3)
     {
         jrainbow3_size = zone_data->cycle_or_led_num;
     }
@@ -1471,6 +1540,12 @@ bool MSIMotherboard185Controller::SelectPerLedProtocol()
         enable_per_led_msg.on_board_led.colorFlags = PER_LED_BASIC_SYNC_MODE;
     }
 
+    if(gen2_jrainbow3)
+    {
+        ApplyGen2SlotData(enable_per_led_msg);
+        enable_per_led_msg.on_board_led.colorFlags &= ~MSI_COLOR_FLAG_SYNC_SETTING_JCORSAIR;
+    }
+
     if(direct_mode)
     {
         if(per_led_mode == DIRECT_MODE_PER_LED)
@@ -1488,4 +1563,150 @@ bool MSIMotherboard185Controller::SelectPerLedProtocol()
     {
         return false;
     }
+}
+
+void MSIMotherboard185Controller::DetectGen2JRainbow3()
+{
+    unsigned char request[64];
+    unsigned char response[64];
+
+    /*-----------------------------------------------------*\
+    | Ask for the Gen2 device table of the JRAINBOW3        |
+    | header, then read it as feature report 0x82           |
+    \*-----------------------------------------------------*/
+    memset(request, 0x00, sizeof(request));
+    request[0x00]   = 0x01;
+    request[0x01]   = 0x82;
+    request[0x06]   = MSI_GEN2_JRAINBOW3_HEADER_INDEX;
+
+    if(hid_write(dev, request, sizeof(request)) != (int)sizeof(request))
+    {
+        return;
+    }
+
+    hid_read_timeout(dev, response, sizeof(response), 1000);
+
+    FeaturePacket_Gen2_185 table;
+    memset(table.devices, 0xFF, sizeof(table.devices));
+
+    if(hid_get_feature_report(dev, (unsigned char*)&table, sizeof(table)) != (int)sizeof(table))
+    {
+        return;
+    }
+
+    if(table.report_id != 0x82)
+    {
+        return;
+    }
+
+    for(std::size_t i = 0; i < NUMOF_GEN2_DEVICES; ++i)
+    {
+        const unsigned char* id = table.devices[i].id;
+
+        if((id[0] != 0xFF) || (id[1] != 0xFF) || (id[2] != 0xFF) || (id[3] != 0xFF))
+        {
+            gen2_devices.push_back(table.devices[i]);
+        }
+    }
+
+    if(gen2_devices.empty())
+    {
+        return;
+    }
+
+    /*-----------------------------------------------------*\
+    | The read order is not stable between reads, the       |
+    | table is written back sorted by device id             |
+    \*-----------------------------------------------------*/
+    std::sort(gen2_devices.begin(), gen2_devices.end(), [](const Gen2DeviceData& a, const Gen2DeviceData& b)
+    {
+        return(memcmp(a.id, b.id, sizeof(a.id)) < 0);
+    });
+
+    for(std::size_t i = 0; i < gen2_devices.size(); ++i)
+    {
+        gen2_colors.push_back(gen2_devices[i].color);
+    }
+
+    gen2_jrainbow3 = true;
+}
+
+void MSIMotherboard185Controller::ApplyGen2SlotData
+    (
+    FeaturePacket_185&  data_packet
+    )
+{
+    /*-----------------------------------------------------*\
+    | JRAINBOW3 slot settings while its Gen2 table drives   |
+    | the header                                            |
+    \*-----------------------------------------------------*/
+    data_packet.j_corsair.effect            = MSI_DIRECT_MODE;
+    data_packet.j_corsair.color             = { 0x00, 0x00, 0x00 };
+    data_packet.j_corsair.fan_flags         = 0x29;
+    data_packet.j_corsair.corsair_quantity  = 0x00;
+    data_packet.j_corsair.padding[0]        = 0x00;
+    data_packet.j_corsair.padding[1]        = 0x00;
+    data_packet.j_corsair.padding[2]        = 0x80;
+    data_packet.j_corsair.padding[3]        = 0x14;
+    data_packet.j_corsair.is_individual     = 0x0C;
+}
+
+void MSIMotherboard185Controller::SendGen2Table()
+{
+    /*-----------------------------------------------------*\
+    | Only static and rainbow wave are known to work in the |
+    | Gen2 table, other modes leave it untouched            |
+    \*-----------------------------------------------------*/
+    if(!gen2_jrainbow3 || ((gen2_effect != MSI_MODE_STATIC) && (gen2_effect != MSI_MODE_RAINBOW_WAVE)))
+    {
+        return;
+    }
+
+    FeaturePacket_Gen2_185 table;
+    memset(table.devices, 0xFF, sizeof(table.devices));
+
+    for(std::size_t i = 0; i < gen2_devices.size(); ++i)
+    {
+        table.devices[i]        = gen2_devices[i];
+        table.devices[i].effect = (unsigned char)gen2_effect;
+        table.devices[i].color  = gen2_colors[i];
+    }
+
+    if(gen2_sent_once && (memcmp(&table, &gen2_last_sent, sizeof(table)) == 0))
+    {
+        return;
+    }
+
+    /*-----------------------------------------------------*\
+    | A change inside the interval stays pending and goes   |
+    | out with a later update                               |
+    \*-----------------------------------------------------*/
+    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+
+    if(gen2_sent_once && ((now - gen2_last_send_time) < MSI_GEN2_MIN_SEND_INTERVAL))
+    {
+        return;
+    }
+
+    if(hid_send_feature_report(dev, (unsigned char*)&table, sizeof(table)) != (int)sizeof(table))
+    {
+        return;
+    }
+
+    /*-----------------------------------------------------*\
+    | Apply the table to the JRAINBOW3 header               |
+    \*-----------------------------------------------------*/
+    unsigned char apply[64];
+
+    memset(apply, 0x00, sizeof(apply));
+    apply[0x00]     = 0x01;
+    apply[0x01]     = 0x84;
+    apply[0x06]     = MSI_GEN2_JRAINBOW3_HEADER_INDEX;
+    apply[0x07]     = 0x01;
+
+    hid_write(dev, apply, sizeof(apply));
+
+    memcpy(&gen2_last_sent, &table, sizeof(table));
+    gen2_sent_once      = true;
+    gen2_last_send_time = now;
 }

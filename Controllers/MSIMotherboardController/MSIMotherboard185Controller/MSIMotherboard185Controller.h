@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstring>
 #include <limits>
+#include <vector>
 #include <hidapi.h>
 #include "MSIMotherboardCommon.h"
 #include "RGBController.h"
@@ -105,6 +107,7 @@ public:
                         );
     const std::vector<MSI_ZONE>*
                     GetSupportedZones() { return supported_zones; }
+    size_t          GetGen2DeviceCount() { return gen2_devices.size(); }
 
     enum DIRECT_MODE
     {
@@ -144,6 +147,14 @@ private:
     int                             numof_JRGBs;
     const std::vector<MSI_ZONE>*    supported_zones;
     DIRECT_MODE                     per_led_mode;
+    bool                            gen2_jrainbow3;
+    std::vector<Gen2DeviceData>     gen2_devices;
+    std::vector<Color>              gen2_colors;
+    MSI_MODE                        gen2_effect;
+    FeaturePacket_Gen2_185          gen2_last_sent;
+    bool                            gen2_sent_once;
+    std::chrono::steady_clock::time_point
+                                    gen2_last_send_time;
 
     bool            ReadSettings();
     bool            ReadFwVersion();
@@ -158,4 +169,10 @@ private:
                         MSI_ZONE zone
                         );
     bool            SelectPerLedProtocol();
+    void            DetectGen2JRainbow3();
+    void            ApplyGen2SlotData
+                        (
+                        FeaturePacket_185&  data_packet
+                        );
+    void            SendGen2Table();
 };

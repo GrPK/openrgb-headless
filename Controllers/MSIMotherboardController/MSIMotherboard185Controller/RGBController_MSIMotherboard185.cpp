@@ -159,6 +159,18 @@ void RGBController_MSIMotherboard185::SetupZones()
             zones[zone_idx].leds_max                    = maxLeds;
             zones[zone_idx].leds_count                  = maxLeds;
         }
+        /*-------------------------------------------------*\
+        | JRAINBOW3 with Gen2 devices, one LED per device   |
+        \*-------------------------------------------------*/
+        else if((zd->zone_type == MSI_ZONE_J_RAINBOW_3) && (controller->GetGen2DeviceCount() > 0))
+        {
+            zones[zone_idx].name                        = zd->name;
+            zones[zone_idx].type                        = ZONE_TYPE_LINEAR;
+            zones[zone_idx].flags                       = 0;
+            zones[zone_idx].leds_min                    = maxLeds;
+            zones[zone_idx].leds_max                    = maxLeds;
+            zones[zone_idx].leds_count                  = maxLeds;
+        }
         /*--------------------------------------------------\
         | This is a resizable zone on a board that does not |
         | support per-LED direct mode                       |
@@ -233,6 +245,12 @@ void RGBController_MSIMotherboard185::SetupZones()
             {
                 led new_led;
                 new_led.name                            = zones[zone_idx].name + ", LED " + std::to_string(led_idx + 1);
+
+                if((zd->zone_type == MSI_ZONE_J_RAINBOW_3) && (controller->GetGen2DeviceCount() > 0))
+                {
+                    new_led.name                        = zones[zone_idx].name + ", Gen2 device " + std::to_string(led_idx + 1);
+                }
+
                 new_led.value                           = zone_description[zone_idx]->zone_type;
                 leds.push_back(new_led);
             }

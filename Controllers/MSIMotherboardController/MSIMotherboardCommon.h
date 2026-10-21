@@ -244,6 +244,32 @@ struct FeaturePacket_PerLED_185
     Color         leds[NUMOF_PER_LED_MODE_LEDS];
 };
 
+/*---------------------------------------------------------*\
+| One device chained on an ARGB Gen2 header. An unused      |
+| entry has an id of FF FF FF FF.                           |
+\*---------------------------------------------------------*/
+struct Gen2DeviceData
+{
+    unsigned char id[4];
+    unsigned char effect;
+    Color         color;
+    unsigned char speedAndBrightnessFlags;
+    Color         color2;
+    unsigned char colorFlags;
+    unsigned char padding;
+    unsigned char led_count;
+    unsigned char padding2;
+};
+
+#define NUMOF_GEN2_DEVICES                          15
+
+struct FeaturePacket_Gen2_185
+{
+    unsigned char       report_id                   = 0x82; // Report ID
+    Gen2DeviceData      devices[NUMOF_GEN2_DEVICES];        // 1
+    unsigned char       save_data                   = 0;    // 241
+};
+
 struct FeaturePacket_PerLED_761
 {
     unsigned char report_id                         = 0x51; // Report ID
