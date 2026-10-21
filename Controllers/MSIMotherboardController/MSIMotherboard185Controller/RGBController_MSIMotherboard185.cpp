@@ -91,6 +91,20 @@ RGBController_MSIMotherboard185::RGBController_MSIMotherboard185(MSIMotherboard1
     last_resizable_zone = MSI_ZONE_NONE;
     SetupModes();
     SetupZones();
+
+    /*-----------------------------------------------------*\
+    | Start Gen2 devices from the colors the board reported |
+    \*-----------------------------------------------------*/
+    for(std::size_t zone_idx = 0; zone_idx < zones.size(); ++zone_idx)
+    {
+        if((zone_description[zone_idx]->zone_type == MSI_ZONE_J_RAINBOW_3) && (controller->GetGen2DeviceCount() > 0))
+        {
+            for(std::size_t led_idx = 0; led_idx < zones[zone_idx].leds_count; ++led_idx)
+            {
+                zones[zone_idx].colors[led_idx] = controller->GetGen2DeviceColor(led_idx);
+            }
+        }
+    }
     active_mode         = GetDeviceMode();
 }
 

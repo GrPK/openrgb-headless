@@ -554,13 +554,21 @@ MSIMotherboard185Controller::MSIMotherboard185Controller(hid_device* handle, con
     /*-----------------------------------------------------*\
     | Look for ARGB Gen2 devices chained on JRAINBOW3       |
     \*-----------------------------------------------------*/
-    gen2_jrainbow3  = false;
-    gen2_effect     = MSI_MODE_STATIC;
-    gen2_sent_once  = false;
+    gen2_jrainbow3      = false;
+    gen2_effect         = MSI_MODE_STATIC;
+    gen2_sent_once      = false;
+    gen2_pending        = false;
+    gen2_stop           = false;
+    gen2_last_send_time = std::chrono::steady_clock::time_point();
 
     if(jrainbow3_in_jcorsair_slot && (per_led_mode == DIRECT_MODE_PER_LED))
     {
         DetectGen2JRainbow3();
+    }
+
+    if(gen2_jrainbow3)
+    {
+        gen2_flush_thread = std::thread(&MSIMotherboard185Controller::Gen2FlushThreadFunction, this);
     }
 
     /*-----------------------------------------------------*\
@@ -585,9 +593,9 @@ MSIMotherboard185Controller::MSIMotherboard185Controller(hid_device* handle, con
     enable_per_led_msg.j_corsair.is_individual                      = 0x78;
 
     /*-----------------------------------------------------*\
-    | When the JCORSAIR slot carries JRAINBOW3, bit 2 of    |
-    | its byte 62 must be set or the header stays dark, the |
-    | same value SetMode writes for J_RAINBOW_3             |
+    | When the JCORSAIR slot carries JRAINBOW3 it drives    |
+    | the ARGB header only with the select bit that SetMode |
+    | writes for J_RAINBOW_3, without it the header is dark |
     \*-----------------------------------------------------*/
     if(jrainbow3_in_jcorsair_slot)
     {
@@ -669,6 +677,16 @@ MSIMotherboard185Controller::MSIMotherboard185Controller(hid_device* handle, con
 
 MSIMotherboard185Controller::~MSIMotherboard185Controller()
 {
+    if(gen2_flush_thread.joinable())
+    {
+        {
+            std::lock_guard<std::mutex> lock(io_mutex);
+            gen2_stop = true;
+        }
+        gen2_cv.notify_all();
+        gen2_flush_thread.join();
+    }
+
     hid_close(dev);
 }
 
@@ -829,6 +847,8 @@ bool MSIMotherboard185Controller::Update
     bool save
     )
 {
+    std::lock_guard<std::mutex> lock(io_mutex);
+
     /*-----------------------------------------------------*\
     | Send packet to hardware, return true if successful    |
     \*-----------------------------------------------------*/
@@ -1388,6 +1408,8 @@ void MSIMotherboard185Controller::SetZoneLEDCount
         return;
     }
 
+    std::lock_guard<std::mutex> lock(io_mutex);
+
     RainbowZoneData *requested_zone = GetRainbowZoneData(zone);
 
     if(!requested_zone)
@@ -1404,6 +1426,8 @@ void MSIMotherboard185Controller::SetDirectMode
     bool mode
     )
 {
+    std::lock_guard<std::mutex> lock(io_mutex);
+
     direct_mode             = mode;
     direct_mode_configured  = false;
 
@@ -1568,7 +1592,6 @@ bool MSIMotherboard185Controller::SelectPerLedProtocol()
 void MSIMotherboard185Controller::DetectGen2JRainbow3()
 {
     unsigned char request[64];
-    unsigned char response[64];
 
     /*-----------------------------------------------------*\
     | Ask for the Gen2 device table of the JRAINBOW3        |
@@ -1584,7 +1607,7 @@ void MSIMotherboard185Controller::DetectGen2JRainbow3()
         return;
     }
 
-    hid_read_timeout(dev, response, sizeof(response), 1000);
+    std::this_thread::sleep_for(50ms);
 
     FeaturePacket_Gen2_185 table;
     memset(table.devices, 0xFF, sizeof(table.devices));
@@ -1601,9 +1624,12 @@ void MSIMotherboard185Controller::DetectGen2JRainbow3()
 
     for(std::size_t i = 0; i < NUMOF_GEN2_DEVICES; ++i)
     {
-        const unsigned char* id = table.devices[i].id;
+        const unsigned char* id         = table.devices[i].id;
+        bool                 id_all_ff  = (id[0] == 0xFF) && (id[1] == 0xFF) && (id[2] == 0xFF) && (id[3] == 0xFF);
+        bool                 id_all_00  = (id[0] == 0x00) && (id[1] == 0x00) && (id[2] == 0x00) && (id[3] == 0x00);
+        unsigned char        led_count  = table.devices[i].led_count;
 
-        if((id[0] != 0xFF) || (id[1] != 0xFF) || (id[2] != 0xFF) || (id[3] != 0xFF))
+        if(!id_all_ff && !id_all_00 && (led_count > 0) && (led_count <= NUMOF_PER_LED_MODE_LEDS))
         {
             gen2_devices.push_back(table.devices[i]);
         }
@@ -1653,42 +1679,51 @@ void MSIMotherboard185Controller::ApplyGen2SlotData
 
 void MSIMotherboard185Controller::SendGen2Table()
 {
-    /*-----------------------------------------------------*\
-    | Only static and rainbow wave are known to work in the |
-    | Gen2 table, other modes leave it untouched            |
-    \*-----------------------------------------------------*/
-    if(!gen2_jrainbow3 || ((gen2_effect != MSI_MODE_STATIC) && (gen2_effect != MSI_MODE_RAINBOW_WAVE)))
+    if(!gen2_jrainbow3)
     {
         return;
     }
 
+    /*-----------------------------------------------------*\
+    | Only static and rainbow wave are known Gen2 effects,  |
+    | other modes show their first color as static          |
+    \*-----------------------------------------------------*/
     FeaturePacket_Gen2_185 table;
     memset(table.devices, 0xFF, sizeof(table.devices));
 
     for(std::size_t i = 0; i < gen2_devices.size(); ++i)
     {
         table.devices[i]        = gen2_devices[i];
-        table.devices[i].effect = (unsigned char)gen2_effect;
+        table.devices[i].effect = (gen2_effect == MSI_MODE_RAINBOW_WAVE) ? MSI_MODE_RAINBOW_WAVE : MSI_MODE_STATIC;
         table.devices[i].color  = gen2_colors[i];
     }
 
     if(gen2_sent_once && (memcmp(&table, &gen2_last_sent, sizeof(table)) == 0))
     {
+        gen2_pending = false;
         return;
     }
+
+    memcpy(&gen2_pending_table, &table, sizeof(table));
+    gen2_pending = true;
 
     /*-----------------------------------------------------*\
-    | A change inside the interval stays pending and goes   |
-    | out with a later update                               |
+    | Inside the send interval the flush thread sends the   |
+    | latest table once the interval has passed             |
     \*-----------------------------------------------------*/
-    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
-
-    if(gen2_sent_once && ((now - gen2_last_send_time) < MSI_GEN2_MIN_SEND_INTERVAL))
+    if((std::chrono::steady_clock::now() - gen2_last_send_time) >= MSI_GEN2_MIN_SEND_INTERVAL)
     {
-        return;
+        FlushGen2Table();
     }
 
-    if(hid_send_feature_report(dev, (unsigned char*)&table, sizeof(table)) != (int)sizeof(table))
+    gen2_cv.notify_all();
+}
+
+void MSIMotherboard185Controller::FlushGen2Table()
+{
+    gen2_last_send_time = std::chrono::steady_clock::now();
+
+    if(hid_send_feature_report(dev, (unsigned char*)&gen2_pending_table, sizeof(gen2_pending_table)) != (int)sizeof(gen2_pending_table))
     {
         return;
     }
@@ -1704,9 +1739,45 @@ void MSIMotherboard185Controller::SendGen2Table()
     apply[0x06]     = MSI_GEN2_JRAINBOW3_HEADER_INDEX;
     apply[0x07]     = 0x01;
 
-    hid_write(dev, apply, sizeof(apply));
+    if(hid_write(dev, apply, sizeof(apply)) != (int)sizeof(apply))
+    {
+        return;
+    }
 
-    memcpy(&gen2_last_sent, &table, sizeof(table));
-    gen2_sent_once      = true;
-    gen2_last_send_time = now;
+    memcpy(&gen2_last_sent, &gen2_pending_table, sizeof(gen2_pending_table));
+    gen2_sent_once  = true;
+    gen2_pending    = false;
+}
+
+void MSIMotherboard185Controller::Gen2FlushThreadFunction()
+{
+    std::unique_lock<std::mutex> lock(io_mutex);
+
+    while(!gen2_stop)
+    {
+        if(!gen2_pending)
+        {
+            gen2_cv.wait(lock);
+        }
+        else if(!gen2_cv.wait_until(lock, gen2_last_send_time + MSI_GEN2_MIN_SEND_INTERVAL, [this]{ return gen2_stop; }))
+        {
+            if(gen2_pending && ((std::chrono::steady_clock::now() - gen2_last_send_time) >= MSI_GEN2_MIN_SEND_INTERVAL))
+            {
+                FlushGen2Table();
+            }
+        }
+    }
+}
+
+RGBColor MSIMotherboard185Controller::GetGen2DeviceColor
+    (
+    std::size_t index
+    )
+{
+    if(index >= gen2_colors.size())
+    {
+        return(ToRGBColor(0, 0, 0));
+    }
+
+    return(ToRGBColor(gen2_colors[index].R, gen2_colors[index].G, gen2_colors[index].B));
 }

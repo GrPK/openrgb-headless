@@ -18,8 +18,11 @@
 #pragma once
 
 #include <chrono>
+#include <condition_variable>
 #include <cstring>
 #include <limits>
+#include <mutex>
+#include <thread>
 #include <vector>
 #include <hidapi.h>
 #include "MSIMotherboardCommon.h"
@@ -108,6 +111,10 @@ public:
     const std::vector<MSI_ZONE>*
                     GetSupportedZones() { return supported_zones; }
     size_t          GetGen2DeviceCount() { return gen2_devices.size(); }
+    RGBColor        GetGen2DeviceColor
+                        (
+                        std::size_t index
+                        );
 
     enum DIRECT_MODE
     {
@@ -155,6 +162,12 @@ private:
     bool                            gen2_sent_once;
     std::chrono::steady_clock::time_point
                                     gen2_last_send_time;
+    FeaturePacket_Gen2_185          gen2_pending_table;
+    bool                            gen2_pending;
+    bool                            gen2_stop;
+    std::mutex                      io_mutex;
+    std::condition_variable         gen2_cv;
+    std::thread                     gen2_flush_thread;
 
     bool            ReadSettings();
     bool            ReadFwVersion();
@@ -175,4 +188,6 @@ private:
                         FeaturePacket_185&  data_packet
                         );
     void            SendGen2Table();
+    void            FlushGen2Table();
+    void            Gen2FlushThreadFunction();
 };
