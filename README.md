@@ -89,6 +89,18 @@ Everything that's not GUI-bound:
   { "version": 1, "devices": { "Corsair Vengeance RGB DDR5": "Corsair DRAM" } }
   ```
 
+- **Commander Core cooling over the SDK**: two packets outside the upstream ID
+  range, `NET_PACKET_ID_NEXUS_COOLING_GET_STATUS` and
+  `NET_PACKET_ID_NEXUS_COOLING_SET_DUTIES`, addressed by controller ID from
+  protocol 6. A controller that implements `NexusCoolingDevice` (`NexusCooling.h`)
+  answers them; every other controller replies with an unsupported ACK. The
+  Commander Core controller owns the device, so cooling transactions (fan and
+  pump RPM, temperatures, a software duty table) run on its worker thread under
+  the same controller lock as lighting, and the SDK calls only read or replace
+  cached state. The payload layouts are documented in
+  `Controllers/CorsairCommanderCoreController/CorsairCommanderCoreCooling.h`;
+  `tests/CorsairCommanderCoreCoolingTest.cpp` checks them.
+
 ## License
 
 OpenRGB is licensed under the **GNU General Public License, version 2 or later**

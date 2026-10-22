@@ -206,6 +206,12 @@ enum
                                                             /* SetDeviceSpecificZoneConfiguration()             */
 
     NET_PACKET_ID_RGBCONTROLLER_SIGNALUPDATE        = 1150, /* RGBController::SignalUpdate()                    */
+
+    /*----------------------------------------------------------------------------------------------------------*\
+    | Nexus extension, not part of upstream OpenRGB. Addressed by controller ID like the RGBController packets.  |
+    \*----------------------------------------------------------------------------------------------------------*/
+    NET_PACKET_ID_NEXUS_COOLING_GET_STATUS          = 40000,/* Request cooling status, reply carries the payload*/
+    NET_PACKET_ID_NEXUS_COOLING_SET_DUTIES          = 40001,/* Replace the commanded fan and pump duties        */
 };
 
 std::string GetHostname();

@@ -13,8 +13,9 @@
 
 #include "RGBController.h"
 #include "CorsairCommanderCoreController.h"
+#include "NexusCooling.h"
 
-class RGBController_CorsairCommanderCore : public RGBController
+class RGBController_CorsairCommanderCore : public RGBController, public NexusCoolingDevice
 {
 public:
     RGBController_CorsairCommanderCore(CorsairCommanderCoreController* controller_ptr);
@@ -28,6 +29,9 @@ public:
     void        DeviceUpdateSingleLED(int led);
 
     void        DeviceUpdateMode();
+
+    bool        NexusCoolingGetStatus(std::vector<unsigned char>& payload);
+    bool        NexusCoolingSetDuties(const unsigned char* payload, unsigned int size);
 
 private:
     CorsairCommanderCoreController*     controller;

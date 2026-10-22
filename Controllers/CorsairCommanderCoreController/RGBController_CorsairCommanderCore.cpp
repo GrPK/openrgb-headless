@@ -266,3 +266,13 @@ void RGBController_CorsairCommanderCore::DeviceUpdateMode()
             break;
     }
 }
+
+bool RGBController_CorsairCommanderCore::NexusCoolingGetStatus(std::vector<unsigned char>& payload)
+{
+    return(controller->NexusCoolingGetStatus(payload));
+}
+
+bool RGBController_CorsairCommanderCore::NexusCoolingSetDuties(const unsigned char* payload, unsigned int size)
+{
+    return(controller->NexusCoolingSetDuties(payload, size));
+}

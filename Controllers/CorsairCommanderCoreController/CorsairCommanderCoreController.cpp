@@ -18,6 +18,7 @@
 #include "CorsairDeviceGuard.h"
 
 using namespace std::chrono_literals;
+using namespace CorsairCommanderCoreCooling;
 
 CorsairCommanderCoreController::CorsairCommanderCoreController(hid_device* dev_handle, const char* path, int pid, std::string dev_name)
 {
@@ -59,9 +60,12 @@ CorsairCommanderCoreController::CorsairCommanderCoreController(hid_device* dev_h
 CorsairCommanderCoreController::~CorsairCommanderCoreController()
 {
     /*-----------------------------------------------------*\
-    | Close keepalive thread before the last command so the |
-    | two cannot read each other's reply                    |
+    | Close the cooling worker first, then the keepalive    |
+    | thread, before the last command so none of them can   |
+    | read each other's reply                               |
     \*-----------------------------------------------------*/
+    StopCoolingThread();
+
     keepalive_thread_run = 0;
     keepalive_thread->join();
     delete keepalive_thread;
@@ -432,6 +436,12 @@ void CorsairCommanderCoreController::SetFanMode(bool external_rgb_port)
     DeviceGuardLock _   = guard_manager_ptr->AwaitExclusiveAccess();
 
     /*-----------------------------------------------------*\
+    | Re-initialisation drops the software duty table, so   |
+    | the cooling worker writes it again                    |
+    \*-----------------------------------------------------*/
+    init_count++;
+
+    /*-----------------------------------------------------*\
     | Force controller to 6 QL fan mode to expose maximum   |
     | number of LEDs per rgb port (34 LEDs per port)        |
     \*-----------------------------------------------------*/
@@ -524,4 +534,375 @@ void CorsairCommanderCoreController::SetLedAmount(int led_amount)
 
     WriteData(endpoint, data_type, buf, 15);
     controller_ready    = 1;
+}
+
+
+/*---------------------------------------------------------*\
+| Cooling                                                   |
+|                                                           |
+| Transactions use the second handle and the info step like |
+| the vendor software does for cooling, so they never share |
+| a handle with the lighting stream. Each one runs under    |
+| controller_mutex, which also serializes lighting writes.  |
+\*---------------------------------------------------------*/
+
+#define CORSAIR_COMMANDER_CORE_COOLING_REPLY_TIMEOUT    150ms
+#define CORSAIR_COMMANDER_CORE_COOLING_INFO_TIMEOUT     40ms
+#define CORSAIR_COMMANDER_CORE_COOLING_POLL_PERIOD      1s
+#define CORSAIR_COMMANDER_CORE_COOLING_CONNECTED_PERIOD 10s
+#define CORSAIR_COMMANDER_CORE_COOLING_IDLE_AFTER       15s
+#define CORSAIR_COMMANDER_CORE_COOLING_STALE_AFTER      5s
+#define CORSAIR_COMMANDER_CORE_COOLING_MAX_BACKOFF_STEP 3
+
+void CorsairCommanderCoreController::StartCoolingThread()
+{
+    std::lock_guard<std::mutex> lock(cooling_thread_mutex);
+
+    if(cooling_thread == nullptr)
+    {
+        cooling_thread_run  = true;
+        cooling_thread      = new std::thread(&CorsairCommanderCoreController::CoolingThreadFunction, this);
+    }
+}
+
+void CorsairCommanderCoreController::StopCoolingThread()
+{
+    std::lock_guard<std::mutex> lock(cooling_thread_mutex);
+
+    if(cooling_thread != nullptr)
+    {
+        cooling_thread_run = false;
+        cooling_cv.notify_all();
+        cooling_thread->join();
+        delete cooling_thread;
+        cooling_thread = nullptr;
+    }
+}
+
+bool CorsairCommanderCoreController::NexusCoolingGetStatus(std::vector<unsigned char>& payload)
+{
+    StartCoolingThread();
+
+    std::lock_guard<std::mutex> lock(cooling_mutex);
+
+    auto now                = std::chrono::steady_clock::now();
+    cooling_last_request    = now;
+
+    Status status           = cooling_status;
+    status.pid              = (uint16_t)pid;
+
+    /*-----------------------------------------------------*\
+    | Old readings are reported as no data                  |
+    \*-----------------------------------------------------*/
+    long long age_ms        = std::chrono::duration_cast<std::chrono::milliseconds>(now - cooling_status_time).count();
+
+    status.valid            = cooling_status.valid && age_ms < std::chrono::milliseconds(CORSAIR_COMMANDER_CORE_COOLING_STALE_AFTER).count();
+    status.age_ms           = (uint16_t)std::min<long long>(std::max<long long>(age_ms, 0), 0xFFFF);
+    status.duty             = cooling_applied_duty;
+
+    payload                 = SerializeStatus(status);
+    return(true);
+}
+
+bool CorsairCommanderCoreController::NexusCoolingSetDuties(const unsigned char* payload, unsigned int size)
+{
+    std::vector<DutyEntry> entries;
+
+    if(!ParseSetDuties(payload, size, entries))
+    {
+        return(false);
+    }
+
+    StartCoolingThread();
+
+    std::lock_guard<std::mutex> lock(cooling_mutex);
+
+    cooling_last_request    = std::chrono::steady_clock::now();
+    cooling_target          = entries;
+    return(true);
+}
+
+void CorsairCommanderCoreController::CoolingThreadFunction()
+{
+    auto next_poll          = std::chrono::steady_clock::now();
+    auto next_connected     = next_poll;
+    auto next_apply         = next_poll;
+
+    while(cooling_thread_run.load())
+    {
+        {
+            std::unique_lock<std::mutex> lock(cooling_mutex);
+            cooling_cv.wait_for(lock, 200ms, [this]{ return(!cooling_thread_run.load()); });
+        }
+
+        if(!cooling_thread_run.load())
+        {
+            break;
+        }
+
+        auto now = std::chrono::steady_clock::now();
+
+        if(!controller_ready.load())
+        {
+            continue;
+        }
+
+        if(now >= next_apply)
+        {
+            CoolingApplyDuties();
+        }
+
+        bool interested;
+        unsigned int failures;
+
+        {
+            std::lock_guard<std::mutex> lock(cooling_mutex);
+
+            interested  = (now - cooling_last_request) < CORSAIR_COMMANDER_CORE_COOLING_IDLE_AFTER;
+            failures    = cooling_failures;
+        }
+
+        /*-------------------------------------------------*\
+        | Back off while the device does not answer, so a   |
+        | stuck device costs lighting at most a few frames  |
+        \*-------------------------------------------------*/
+        auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(CORSAIR_COMMANDER_CORE_COOLING_POLL_PERIOD) * (1u << std::min<unsigned int>(failures, CORSAIR_COMMANDER_CORE_COOLING_MAX_BACKOFF_STEP));
+
+        next_apply = failures > 0 ? now + delay : now;
+
+        if(interested && now >= next_poll)
+        {
+            bool read_connected = now >= next_connected;
+
+            CoolingPoll(read_connected);
+
+            now         = std::chrono::steady_clock::now();
+            next_poll   = now + delay;
+
+            if(read_connected)
+            {
+                next_connected = now + CORSAIR_COMMANDER_CORE_COOLING_CONNECTED_PERIOD;
+            }
+        }
+    }
+}
+
+void CorsairCommanderCoreController::CoolingPoll(bool read_connected)
+{
+    std::vector<unsigned char>  res;
+    std::vector<uint16_t>       rpm;
+    std::vector<Temperature>    temperatures;
+    std::vector<bool>           connected;
+    bool                        have_connected = false;
+
+    if(!CoolingReadEndpoint(ENDPOINT_SPEEDS, TYPE_SPEEDS, res) || !ParseSpeeds(res.data(), res.size(), rpm)
+    || !CoolingReadEndpoint(ENDPOINT_TEMPERATURES, TYPE_TEMPERATURES, res) || !ParseTemperatures(res.data(), res.size(), temperatures))
+    {
+        std::lock_guard<std::mutex> lock(cooling_mutex);
+
+        cooling_failures++;
+        return;
+    }
+
+    if(read_connected && CoolingReadEndpoint(ENDPOINT_CONNECTED, TYPE_CONNECTED, res) && ParseConnected(res.data(), res.size(), connected))
+    {
+        have_connected = true;
+    }
+
+    std::lock_guard<std::mutex> lock(cooling_mutex);
+
+    cooling_failures            = 0;
+    cooling_status.valid        = true;
+    cooling_status_time         = std::chrono::steady_clock::now();
+    cooling_status.rpm          = rpm;
+    cooling_status.temperatures = temperatures;
+
+    if(have_connected)
+    {
+        cooling_status.connected = connected;
+    }
+    else if(cooling_status.connected.size() != rpm.size())
+    {
+        /*-------------------------------------------------*\
+        | Until the connected list has been read, a spinning|
+        | channel counts as connected                       |
+        \*-------------------------------------------------*/
+        cooling_status.connected.assign(rpm.size(), false);
+
+        for(size_t i = 0; i < rpm.size(); i++)
+        {
+            cooling_status.connected[i] = rpm[i] > 0;
+        }
+    }
+}
+
+void CorsairCommanderCoreController::CoolingApplyDuties()
+{
+    std::vector<DutyEntry>      target;
+    std::vector<unsigned char>  written;
+    unsigned int                epoch = init_count.load();
+    bool                        epoch_changed;
+
+    {
+        std::lock_guard<std::mutex> lock(cooling_mutex);
+
+        target          = cooling_target;
+        written         = cooling_written_table;
+        epoch_changed   = (epoch != cooling_written_init);
+    }
+
+    /*-----------------------------------------------------*\
+    | Nothing is written until Nexus commands a duty        |
+    \*-----------------------------------------------------*/
+    if(target.empty())
+    {
+        return;
+    }
+
+    std::vector<unsigned char> table = BuildSoftwareDutyTable(target);
+
+    if(!epoch_changed && table == written)
+    {
+        return;
+    }
+
+    bool ok = CoolingWriteEndpoint(ENDPOINT_SOFTWARE_DUTY, TYPE_SOFTWARE_DUTY, table);
+
+    std::lock_guard<std::mutex> lock(cooling_mutex);
+
+    if(!ok)
+    {
+        cooling_failures++;
+        return;
+    }
+
+    cooling_failures        = 0;
+    cooling_written_table   = table;
+    cooling_written_init    = epoch;
+    cooling_applied_duty.assign(MAX_CHANNELS, NO_DUTY);
+
+    for(size_t i = 0; i < target.size(); i++)
+    {
+        cooling_applied_duty[target[i].channel] = target[i].duty;
+    }
+}
+
+bool CorsairCommanderCoreController::CoolingExchange(unsigned char command, const std::vector<unsigned char>& data, unsigned char* reply, bool reply_required)
+{
+    if(data.size() > (size_t)(packet_size - 4))
+    {
+        return(false);
+    }
+
+    std::vector<unsigned char> out = BuildCommand(command, data, packet_size);
+    std::vector<unsigned char> in(packet_size, 0);
+
+    if(hid_write(dev, out.data(), packet_size) < 0)
+    {
+        return(false);
+    }
+
+    auto deadline = std::chrono::steady_clock::now() + (reply_required ? CORSAIR_COMMANDER_CORE_COOLING_REPLY_TIMEOUT : CORSAIR_COMMANDER_CORE_COOLING_INFO_TIMEOUT);
+
+    while(true)
+    {
+        long long remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+
+        if(remaining <= 0)
+        {
+            return(!reply_required);
+        }
+
+        int bytes_read = hid_read_timeout(dev, in.data(), packet_size, (int)remaining);
+
+        if(bytes_read < 0)
+        {
+            return(false);
+        }
+
+        /*-------------------------------------------------*\
+        | Skip anything that does not answer this command   |
+        \*-------------------------------------------------*/
+        if(bytes_read >= 3 && in[0] == 0x00 && in[1] == command)
+        {
+            if(reply != nullptr)
+            {
+                memcpy(reply, in.data(), packet_size);
+            }
+
+            return(true);
+        }
+    }
+}
+
+bool CorsairCommanderCoreController::CoolingReadEndpoint(unsigned char endpoint, unsigned char data_type, std::vector<unsigned char>& res)
+{
+    std::lock_guard<std::recursive_mutex> lock(controller_mutex);
+
+    if(!controller_ready.load())
+    {
+        return(false);
+    }
+
+    DeviceGuardLock _ = guard_manager_ptr->AwaitExclusiveAccess();
+
+    DiscardStaleReplies();
+
+    std::vector<unsigned char> reply(packet_size, 0);
+    std::vector<unsigned char> none;
+
+    bool ok = CoolingExchange(COMMAND_OPEN, OpenData(endpoint), nullptr, true)
+           && CoolingExchange(COMMAND_INFO, none, nullptr, false)
+           && CoolingExchange(COMMAND_READ, none, reply.data(), true);
+
+    /*-----------------------------------------------------*\
+    | Always close, so a failed read does not leave the     |
+    | endpoint open for the lighting stream to trip over    |
+    \*-----------------------------------------------------*/
+    CoolingExchange(COMMAND_CLOSE, CloseData(), nullptr, false);
+
+    if(!ok || reply[3] != data_type)
+    {
+        return(false);
+    }
+
+    res.assign(reply.begin() + 3, reply.end());
+    return(true);
+}
+
+bool CorsairCommanderCoreController::CoolingWriteEndpoint(unsigned char endpoint, unsigned char data_type, const std::vector<unsigned char>& data)
+{
+    std::lock_guard<std::recursive_mutex> lock(controller_mutex);
+
+    if(!controller_ready.load())
+    {
+        return(false);
+    }
+
+    DeviceGuardLock _ = guard_manager_ptr->AwaitExclusiveAccess();
+
+    DiscardStaleReplies();
+
+    std::vector<unsigned char> none;
+
+    bool ok = CoolingExchange(COMMAND_OPEN, OpenData(endpoint), nullptr, true)
+           && CoolingExchange(COMMAND_INFO, none, nullptr, false)
+           && CoolingExchange(COMMAND_WRITE, BuildWriteData(data_type, data), nullptr, true);
+
+    CoolingExchange(COMMAND_CLOSE, CloseData(), nullptr, false);
+
+    return(ok);
+}
+
+void CorsairCommanderCoreController::DiscardStaleReplies()
+{
+    /*-----------------------------------------------------*\
+    | Discard a reply that a timed out transaction left     |
+    | behind                                                |
+    \*-----------------------------------------------------*/
+    std::vector<unsigned char> stale(packet_size);
+
+    for(int i = 0; i < 16 && hid_read_timeout(dev, stale.data(), packet_size, 0) > 0; i++)
+    {
+    }
 }

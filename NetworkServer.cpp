@@ -15,6 +15,7 @@
 #include "JsonUtils.h"
 #include "LogManager.h"
 #include "NetworkServer.h"
+#include "NexusCooling.h"
 #include "StringUtils.h"
 
 #ifndef _WIN32
@@ -1602,6 +1603,14 @@ void NetworkServer::ListenThreadFunction(NetworkClientInfo* client_info)
                 status = ProcessRequest_RGBController_SetDeviceSpecificZoneConfiguration(client_info, header.pkt_size, data, header.pkt_dev_id);
                 break;
 
+        /*-------------------------------------------------*\
+        | Nexus extension                                   |
+        \*-------------------------------------------------*/
+            case NET_PACKET_ID_NEXUS_COOLING_GET_STATUS:
+            case NET_PACKET_ID_NEXUS_COOLING_SET_DUTIES:
+                status = ProcessRequest_NexusCooling(client_info, header.pkt_id, header.pkt_size, data, header.pkt_dev_id);
+                break;
+
             default:
                 status = NET_PACKET_STATUS_ERROR_UNSUPPORTED;
                 break;
@@ -2846,6 +2855,63 @@ NetPacketStatus NetworkServer::ProcessRequest_RGBController_ConfigureZone(Networ
     | Save configuration                                    |
     \*-----------------------------------------------------*/
     profile_manager->SaveConfiguration();
+
+    return(NET_PACKET_STATUS_OK);
+}
+
+NetPacketStatus NetworkServer::ProcessRequest_NexusCooling(NetworkClientInfo* client_info, unsigned int packet_id, unsigned int data_size, unsigned char* data_ptr, unsigned int controller_id)
+{
+    /*-----------------------------------------------------*\
+    | Controller IDs came with the ACK protocol version    |
+    \*-----------------------------------------------------*/
+    if(client_info->client_protocol_version < 6)
+    {
+        return(NET_PACKET_STATUS_ERROR_UNSUPPORTED);
+    }
+
+    /*-----------------------------------------------------*\
+    | Hold the ID list shared so the controller cannot be   |
+    | replaced while it is called                           |
+    \*-----------------------------------------------------*/
+    std::shared_lock<std::shared_mutex> ids_lock(controller_ids_mutex);
+
+    bool            controller_idx_valid;
+    unsigned int    controller_idx  = index_from_id_locked(controller_id, client_info->client_protocol_version, &controller_idx_valid);
+
+    if(!controller_idx_valid || controller_idx >= controllers.size())
+    {
+        return(NET_PACKET_STATUS_ERROR_INVALID_ID);
+    }
+
+    NexusCoolingDevice* cooling = dynamic_cast<NexusCoolingDevice*>(controllers[controller_idx]);
+
+    if(cooling == nullptr)
+    {
+        return(NET_PACKET_STATUS_ERROR_UNSUPPORTED);
+    }
+
+    if(packet_id == NET_PACKET_ID_NEXUS_COOLING_SET_DUTIES)
+    {
+        return(cooling->NexusCoolingSetDuties(data_ptr, data_size) ? NET_PACKET_STATUS_OK : NET_PACKET_STATUS_ERROR_INVALID_DATA);
+    }
+
+    std::vector<unsigned char> payload;
+
+    if(!cooling->NexusCoolingGetStatus(payload))
+    {
+        return(NET_PACKET_STATUS_ERROR_GENERIC);
+    }
+
+    ids_lock.unlock();
+
+    NetPacketHeader reply_hdr;
+
+    InitNetPacketHeader(&reply_hdr, controller_id, NET_PACKET_ID_NEXUS_COOLING_GET_STATUS, (unsigned int)payload.size());
+
+    send_in_progress.lock();
+    send(client_info->client_sock, (const char *)&reply_hdr, sizeof(NetPacketHeader), MSG_NOSIGNAL);
+    send(client_info->client_sock, (const char *)payload.data(), (int)payload.size(), MSG_NOSIGNAL);
+    send_in_progress.unlock();
 
     return(NET_PACKET_STATUS_OK);
 }

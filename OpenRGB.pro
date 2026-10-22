@@ -159,6 +159,7 @@ HEADERS +=                                                                      
     NetworkClient.h                                                                             \
     NetworkProtocol.h                                                                           \
     NetworkServer.h                                                                             \
+    NexusCooling.h                                                                              \
     ProfileManager.h                                                                            \
     ResourceManager.h                                                                           \
     ResourceManagerCallback.h                                                                   \
