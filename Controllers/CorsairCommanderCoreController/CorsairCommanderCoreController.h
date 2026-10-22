@@ -118,6 +118,8 @@ private:
     std::vector<unsigned char>                          cooling_applied_duty;
     std::chrono::steady_clock::time_point               cooling_written_at;
     bool                                                cooling_release_pending = false;
+    bool                                                cooling_safe_active     = false;
+    unsigned long                                       cooling_serial          = 0;
     unsigned int                                        cooling_written_init    = 0;
     unsigned int                                        cooling_failures        = 0;
 

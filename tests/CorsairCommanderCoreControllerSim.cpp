@@ -208,9 +208,16 @@ int main()
     std::this_thread::sleep_for(800ms);
     Show("release table", g_last_table);
     CHECK(g_last_table == Bytes({3, 0, 0, 70, 0, 1, 0, 50, 0, 2, 0, 50, 0}));
+    // the hand-back table is kept up like a commanded one: rewritten now and then, and after a re-init
     before = g_table_writes;
     for(int i = 0; i < 6; i++) { std::this_thread::sleep_for(1s); ctrl->NexusCoolingGetStatus(st); }
-    CHECK(g_table_writes == before);
+    CHECK(g_table_writes > before);
+    CHECK(g_last_table == Bytes({3, 0, 0, 70, 0, 1, 0, 50, 0, 2, 0, 50, 0}));
+    before = g_table_writes;
+    ctrl->SetFanMode(false);
+    std::this_thread::sleep_for(1s);
+    CHECK(g_table_writes > before);
+    CHECK(g_last_table == Bytes({3, 0, 0, 70, 0, 1, 0, 50, 0, 2, 0, 50, 0}));
 
     // Nexus goes silent while duties are commanded: everything runs at full duty
     CHECK(ctrl->NexusCoolingSetDuties(d1.data(), (unsigned)d1.size()));
@@ -219,7 +226,8 @@ int main()
     CHECK(g_last_table == Bytes({3, 0, 0, 100, 0, 1, 0, 100, 0, 2, 0, 100, 0}));
     before = g_table_writes;
     std::this_thread::sleep_for(6s);
-    CHECK(g_table_writes == before);
+    CHECK(g_table_writes > before);
+    CHECK(g_last_table == Bytes({3, 0, 0, 100, 0, 1, 0, 100, 0, 2, 0, 100, 0}));
 
     t0 = std::chrono::steady_clock::now();
     delete ctrl;

@@ -628,12 +628,23 @@ bool CorsairCommanderCoreController::NexusCoolingSetDuties(const unsigned char* 
     std::lock_guard<std::mutex> lock(cooling_mutex);
 
     cooling_last_request    = std::chrono::steady_clock::now();
-    cooling_target          = entries;
+    cooling_serial++;
 
     /*-----------------------------------------------------*\
-    | An empty table hands the channels back                |
+    | An empty table hands the channels back; the commanded |
+    | table stays until the hand-back table is written      |
     \*-----------------------------------------------------*/
-    cooling_release_pending = entries.empty();
+    if(entries.empty())
+    {
+        cooling_release_pending = true;
+    }
+    else
+    {
+        cooling_target          = entries;
+        cooling_release_pending = false;
+        cooling_safe_active     = false;
+    }
+
     return(true);
 }
 
@@ -760,6 +771,7 @@ void CorsairCommanderCoreController::CoolingApplyDuties()
     bool                        epoch_changed;
     bool                        release;
     bool                        silent;
+    unsigned long               serial;
     bool                        has_pump = (pid != CORSAIR_COMMANDER_CORE_XT_PID);
     auto                        now      = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point written_at;
@@ -773,14 +785,17 @@ void CorsairCommanderCoreController::CoolingApplyDuties()
         connected       = cooling_status.connected;
         epoch_changed   = (epoch != cooling_written_init);
         release         = cooling_release_pending;
-        silent          = !table_entries.empty() && (now - cooling_last_request) > CORSAIR_COMMANDER_CORE_COOLING_IDLE_AFTER;
+        serial          = cooling_serial;
+        silent          = !cooling_safe_active && !table_entries.empty() && (now - cooling_last_request) > CORSAIR_COMMANDER_CORE_COOLING_IDLE_AFTER;
     }
 
     /*-----------------------------------------------------*\
-    | Nexus released the channels, or went silent while      |
-    | duties were commanded: write a table the device can    |
-    | run on its own. The sleep command would also drop the  |
-    | lighting stream, so it is not used                     |
+    | Nexus released the channels, or went silent while     |
+    | duties were commanded: write a table the device can   |
+    | run on its own. The sleep command would also drop the |
+    | lighting stream, so it is not used. The table then    |
+    | becomes the active one, so a re-init or a silent      |
+    | reset is repaired like a commanded table              |
     \*-----------------------------------------------------*/
     if(release || silent)
     {
@@ -797,8 +812,15 @@ void CorsairCommanderCoreController::CoolingApplyDuties()
         {
             std::lock_guard<std::mutex> lock(cooling_mutex);
 
-            cooling_target.clear();
-            cooling_release_pending = false;
+            /*-------------------------------------------------*\
+            | A command that arrived during the write stands    |
+            \*-------------------------------------------------*/
+            if(cooling_serial == serial)
+            {
+                cooling_target          = safe;
+                cooling_safe_active     = !safe.empty();
+                cooling_release_pending = false;
+            }
         }
 
         return;
