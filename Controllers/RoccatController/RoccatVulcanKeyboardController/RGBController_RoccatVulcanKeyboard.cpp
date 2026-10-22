@@ -162,6 +162,16 @@ void RGBController_RoccatVulcanKeyboard::SetupZones()
             layout = ROCCAT_VULCAN_LAYOUT_US;
     }
 
+    /*---------------------------------------------------------*\
+    | Not every model ships every layout (the Vulcan II Max     |
+    | has only US and JP). operator[] on a missing key inserts  |
+    | an empty layout, which sized the keyboard zone negative.  |
+    \*---------------------------------------------------------*/
+    if(keyboard.find(layout) == keyboard.end())
+    {
+        layout = (keyboard.find(ROCCAT_VULCAN_LAYOUT_US) != keyboard.end()) ? ROCCAT_VULCAN_LAYOUT_US : keyboard.begin()->first;
+    }
+
 
     /*---------------------------------------------------------*\
     | Determine zone sizes                                      |
