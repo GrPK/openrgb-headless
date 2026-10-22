@@ -109,7 +109,7 @@ private:
     std::mutex                                          cooling_thread_mutex;
     std::mutex                                          cooling_mutex;
     std::condition_variable                             cooling_cv;
-    CorsairCommanderCoreCooling::Status                 cooling_status;
+    CorsairCommanderCoreCooling::CoolingStatus          cooling_status;
     std::chrono::steady_clock::time_point               cooling_status_time;
     std::chrono::steady_clock::time_point               cooling_last_request;
     std::vector<CorsairCommanderCoreCooling::DutyEntry> cooling_target;

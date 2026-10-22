@@ -193,7 +193,7 @@ static void TestSetDuties()
 
 static void TestStatusPayload()
 {
-    Status status;
+    CoolingStatus status;
 
     status.valid        = true;
     status.pid          = 0x0C1C;

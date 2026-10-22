@@ -588,7 +588,7 @@ bool CorsairCommanderCoreController::NexusCoolingGetStatus(std::vector<unsigned 
     auto now                = std::chrono::steady_clock::now();
     cooling_last_request    = now;
 
-    Status status           = cooling_status;
+    CoolingStatus status    = cooling_status;
     status.pid              = (uint16_t)pid;
 
     /*-----------------------------------------------------*\

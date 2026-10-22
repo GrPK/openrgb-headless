@@ -42,7 +42,7 @@ constexpr unsigned char COMMAND_INFO                = 0x09;
 constexpr unsigned char COMMAND_READ                = 0x08;
 constexpr unsigned char COMMAND_WRITE               = 0x06;
 constexpr unsigned char COMMAND_CLOSE               = 0x05;
-constexpr unsigned char HANDLE                      = 0x01;
+constexpr unsigned char COOLING_HANDLE             = 0x01;
 
 /*-----------------------------------------------------*\
 | Upper bounds that reject a garbled reply              |
@@ -80,7 +80,7 @@ struct Temperature
     int16_t         tenths;
 };
 
-struct Status
+struct CoolingStatus
 {
     bool                        valid   = false;
     uint16_t                    pid     = 0;
@@ -103,7 +103,7 @@ inline std::vector<unsigned char> BuildCommand(unsigned char command, const std:
     {
         packet[1] = 0x08;
         packet[2] = command;
-        packet[3] = HANDLE;
+        packet[3] = COOLING_HANDLE;
 
         for(size_t i = 0; i < data.size(); i++)
         {
@@ -289,7 +289,7 @@ inline bool ParseSetDuties(const unsigned char* data, size_t size, std::vector<D
     return(true);
 }
 
-inline std::vector<unsigned char> SerializeStatus(const Status& status)
+inline std::vector<unsigned char> SerializeStatus(const CoolingStatus& status)
 {
     std::vector<unsigned char> out;
     size_t                     channels = status.rpm.size();
