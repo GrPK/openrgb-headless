@@ -219,8 +219,29 @@ static void TestStatusPayload()
     CHECK(SerializeStatus(status)[1] == 0x00);
 }
 
+static void TestPumpAndHandBackTables()
+{
+    std::vector<DutyEntry> entries = {{0, 10}, {1, 20}};
+
+    ApplyPumpFloor(entries, true);
+    CHECK(entries[0].duty == PUMP_FLOOR && entries[1].duty == 20);
+
+    entries = {{0, 10}, {1, 20}};
+    ApplyPumpFloor(entries, false);
+    CHECK(entries[0].duty == 10);
+
+    std::vector<bool> connected = {true, true, false, true};
+    std::vector<DutyEntry> table = BuildUniformTable(connected, true, RELEASE_PUMP_DUTY, RELEASE_FAN_DUTY);
+    CHECK(table.size() == 3);
+    CHECK(Trimmed(BuildSoftwareDutyTable(table)) == Hex("03 00 00 46 00 01 00 32 00 03 00 32"));
+
+    table = BuildUniformTable(connected, false, FAILSAFE_DUTY, FAILSAFE_DUTY);
+    CHECK(Trimmed(BuildSoftwareDutyTable(table)) == Hex("03 00 00 64 00 01 00 64 00 03 00 64"));
+}
+
 int main()
 {
+    TestPumpAndHandBackTables();
     TestParseSpeeds();
     TestParseConnected();
     TestParseTemperatures();

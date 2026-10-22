@@ -190,6 +190,37 @@ int main()
     ctrl->NexusCoolingGetStatus(st);
     CHECK(st[1] == 1);
 
+    // the pump is held at its floor even when asked for less
+    Bytes low = {1, 2, 0, 10, 1, 60};
+    CHECK(ctrl->NexusCoolingSetDuties(low.data(), (unsigned)low.size()));
+    std::this_thread::sleep_for(700ms);
+    CHECK(g_last_table == Bytes({2, 0, 0, 50, 0, 1, 0, 60, 0}));
+
+    // an unchanged table is written again now and then
+    int before = g_table_writes;
+    for(int i = 0; i < 6; i++) { std::this_thread::sleep_for(1s); ctrl->NexusCoolingGetStatus(st); }
+    CHECK(g_table_writes > before);
+    CHECK(g_last_table == Bytes({2, 0, 0, 50, 0, 1, 0, 60, 0}));
+
+    // an empty request hands the connected channels back at the release duties
+    Bytes release = {1, 0};
+    CHECK(ctrl->NexusCoolingSetDuties(release.data(), (unsigned)release.size()));
+    std::this_thread::sleep_for(800ms);
+    Show("release table", g_last_table);
+    CHECK(g_last_table == Bytes({3, 0, 0, 70, 0, 1, 0, 50, 0, 2, 0, 50, 0}));
+    before = g_table_writes;
+    for(int i = 0; i < 6; i++) { std::this_thread::sleep_for(1s); ctrl->NexusCoolingGetStatus(st); }
+    CHECK(g_table_writes == before);
+
+    // Nexus goes silent while duties are commanded: everything runs at full duty
+    CHECK(ctrl->NexusCoolingSetDuties(d1.data(), (unsigned)d1.size()));
+    std::this_thread::sleep_for(18s);
+    Show("failsafe table", g_last_table);
+    CHECK(g_last_table == Bytes({3, 0, 0, 100, 0, 1, 0, 100, 0, 2, 0, 100, 0}));
+    before = g_table_writes;
+    std::this_thread::sleep_for(6s);
+    CHECK(g_table_writes == before);
+
     t0 = std::chrono::steady_clock::now();
     delete ctrl;
     printf("destructor %lld ms\n", (long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count());

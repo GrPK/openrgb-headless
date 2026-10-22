@@ -106,6 +106,7 @@ private:
     std::atomic<unsigned int>                           init_count{0};
     std::thread*                                        cooling_thread          = nullptr;
     std::atomic<bool>                                   cooling_thread_run{false};
+    std::atomic<bool>                                   cooling_stopping{false};
     std::mutex                                          cooling_thread_mutex;
     std::mutex                                          cooling_mutex;
     std::condition_variable                             cooling_cv;
@@ -115,6 +116,8 @@ private:
     std::vector<CorsairCommanderCoreCooling::DutyEntry> cooling_target;
     std::vector<unsigned char>                          cooling_written_table;
     std::vector<unsigned char>                          cooling_applied_duty;
+    std::chrono::steady_clock::time_point               cooling_written_at;
+    bool                                                cooling_release_pending = false;
     unsigned int                                        cooling_written_init    = 0;
     unsigned int                                        cooling_failures        = 0;
 
@@ -130,6 +133,7 @@ private:
     void        CoolingThreadFunction();
     void        CoolingPoll(bool read_connected);
     void        CoolingApplyDuties();
+    bool        CoolingWriteTable(const std::vector<CorsairCommanderCoreCooling::DutyEntry>& entries, unsigned int epoch);
     bool        CoolingExchange(unsigned char command, const std::vector<unsigned char>& data, unsigned char* reply, bool reply_required);
     void        DiscardStaleReplies();
     bool        CoolingReadEndpoint(unsigned char endpoint, unsigned char data_type, std::vector<unsigned char>& res);

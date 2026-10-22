@@ -552,13 +552,14 @@ void CorsairCommanderCoreController::SetLedAmount(int led_amount)
 #define CORSAIR_COMMANDER_CORE_COOLING_CONNECTED_PERIOD 10s
 #define CORSAIR_COMMANDER_CORE_COOLING_IDLE_AFTER       15s
 #define CORSAIR_COMMANDER_CORE_COOLING_STALE_AFTER      5s
+#define CORSAIR_COMMANDER_CORE_COOLING_REWRITE_PERIOD   5s
 #define CORSAIR_COMMANDER_CORE_COOLING_MAX_BACKOFF_STEP 3
 
 void CorsairCommanderCoreController::StartCoolingThread()
 {
     std::lock_guard<std::mutex> lock(cooling_thread_mutex);
 
-    if(cooling_thread == nullptr)
+    if(cooling_thread == nullptr && !cooling_stopping.load())
     {
         cooling_thread_run  = true;
         cooling_thread      = new std::thread(&CorsairCommanderCoreController::CoolingThreadFunction, this);
@@ -568,6 +569,8 @@ void CorsairCommanderCoreController::StartCoolingThread()
 void CorsairCommanderCoreController::StopCoolingThread()
 {
     std::lock_guard<std::mutex> lock(cooling_thread_mutex);
+
+    cooling_stopping = true;
 
     if(cooling_thread != nullptr)
     {
@@ -581,6 +584,11 @@ void CorsairCommanderCoreController::StopCoolingThread()
 
 bool CorsairCommanderCoreController::NexusCoolingGetStatus(std::vector<unsigned char>& payload)
 {
+    if(cooling_stopping.load())
+    {
+        return(false);
+    }
+
     StartCoolingThread();
 
     std::lock_guard<std::mutex> lock(cooling_mutex);
@@ -608,10 +616,12 @@ bool CorsairCommanderCoreController::NexusCoolingSetDuties(const unsigned char* 
 {
     std::vector<DutyEntry> entries;
 
-    if(!ParseSetDuties(payload, size, entries))
+    if(cooling_stopping.load() || !ParseSetDuties(payload, size, entries))
     {
         return(false);
     }
+
+    ApplyPumpFloor(entries, pid != CORSAIR_COMMANDER_CORE_XT_PID);
 
     StartCoolingThread();
 
@@ -619,6 +629,11 @@ bool CorsairCommanderCoreController::NexusCoolingSetDuties(const unsigned char* 
 
     cooling_last_request    = std::chrono::steady_clock::now();
     cooling_target          = entries;
+
+    /*-----------------------------------------------------*\
+    | An empty table hands the channels back                |
+    \*-----------------------------------------------------*/
+    cooling_release_pending = entries.empty();
     return(true);
 }
 
@@ -725,66 +740,116 @@ void CorsairCommanderCoreController::CoolingPoll(bool read_connected)
     {
         /*-------------------------------------------------*\
         | Until the connected list has been read, a spinning|
-        | channel counts as connected                       |
+        | channel and the pump port count as connected      |
         \*-------------------------------------------------*/
         cooling_status.connected.assign(rpm.size(), false);
 
         for(size_t i = 0; i < rpm.size(); i++)
         {
-            cooling_status.connected[i] = rpm[i] > 0;
+            cooling_status.connected[i] = rpm[i] > 0 || (i == 0 && pid != CORSAIR_COMMANDER_CORE_XT_PID);
         }
     }
 }
 
 void CorsairCommanderCoreController::CoolingApplyDuties()
 {
-    std::vector<DutyEntry>      target;
+    std::vector<DutyEntry>      table_entries;
     std::vector<unsigned char>  written;
+    std::vector<bool>           connected;
     unsigned int                epoch = init_count.load();
     bool                        epoch_changed;
+    bool                        release;
+    bool                        silent;
+    bool                        has_pump = (pid != CORSAIR_COMMANDER_CORE_XT_PID);
+    auto                        now      = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point written_at;
 
     {
         std::lock_guard<std::mutex> lock(cooling_mutex);
 
-        target          = cooling_target;
+        table_entries   = cooling_target;
         written         = cooling_written_table;
+        written_at      = cooling_written_at;
+        connected       = cooling_status.connected;
         epoch_changed   = (epoch != cooling_written_init);
+        release         = cooling_release_pending;
+        silent          = !table_entries.empty() && (now - cooling_last_request) > CORSAIR_COMMANDER_CORE_COOLING_IDLE_AFTER;
+    }
+
+    /*-----------------------------------------------------*\
+    | Nexus released the channels, or went silent while      |
+    | duties were commanded: write a table the device can    |
+    | run on its own. The sleep command would also drop the  |
+    | lighting stream, so it is not used                     |
+    \*-----------------------------------------------------*/
+    if(release || silent)
+    {
+        if(connected.empty())
+        {
+            return;
+        }
+
+        std::vector<DutyEntry> safe = release
+            ? BuildUniformTable(connected, has_pump, RELEASE_PUMP_DUTY, RELEASE_FAN_DUTY)
+            : BuildUniformTable(connected, has_pump, FAILSAFE_DUTY, FAILSAFE_DUTY);
+
+        if(safe.empty() || CoolingWriteTable(safe, epoch))
+        {
+            std::lock_guard<std::mutex> lock(cooling_mutex);
+
+            cooling_target.clear();
+            cooling_release_pending = false;
+        }
+
+        return;
     }
 
     /*-----------------------------------------------------*\
     | Nothing is written until Nexus commands a duty        |
     \*-----------------------------------------------------*/
-    if(target.empty())
+    if(table_entries.empty())
     {
         return;
     }
 
-    std::vector<unsigned char> table = BuildSoftwareDutyTable(target);
-
-    if(!epoch_changed && table == written)
+    /*-----------------------------------------------------*\
+    | A changed table is written at once. An unchanged one  |
+    | is written again now and then, because a device reset |
+    | that left the init count alone drops it silently      |
+    \*-----------------------------------------------------*/
+    if(!epoch_changed && BuildSoftwareDutyTable(table_entries) == written && (now - written_at) < CORSAIR_COMMANDER_CORE_COOLING_REWRITE_PERIOD)
     {
         return;
     }
 
-    bool ok = CoolingWriteEndpoint(ENDPOINT_SOFTWARE_DUTY, TYPE_SOFTWARE_DUTY, table);
+    CoolingWriteTable(table_entries, epoch);
+}
+
+bool CorsairCommanderCoreController::CoolingWriteTable(const std::vector<DutyEntry>& entries, unsigned int epoch)
+{
+    std::vector<unsigned char> table = BuildSoftwareDutyTable(entries);
+    bool                       ok    = CoolingWriteEndpoint(ENDPOINT_SOFTWARE_DUTY, TYPE_SOFTWARE_DUTY, table);
 
     std::lock_guard<std::mutex> lock(cooling_mutex);
 
     if(!ok)
     {
         cooling_failures++;
-        return;
+        return(false);
     }
 
     cooling_failures        = 0;
     cooling_written_table   = table;
     cooling_written_init    = epoch;
+    cooling_written_at      = std::chrono::steady_clock::now();
     cooling_applied_duty.assign(MAX_CHANNELS, NO_DUTY);
 
-    for(size_t i = 0; i < target.size(); i++)
+    for(size_t i = 0; i < entries.size(); i++)
     {
-        cooling_applied_duty[target[i].channel] = target[i].duty;
+        cooling_applied_duty[entries[i].channel] = entries[i].duty;
     }
+
+    return(true);
 }
 
 bool CorsairCommanderCoreController::CoolingExchange(unsigned char command, const std::vector<unsigned char>& data, unsigned char* reply, bool reply_required)
@@ -859,7 +924,8 @@ bool CorsairCommanderCoreController::CoolingReadEndpoint(unsigned char endpoint,
     | Always close, so a failed read does not leave the     |
     | endpoint open for the lighting stream to trip over    |
     \*-----------------------------------------------------*/
-    CoolingExchange(COMMAND_CLOSE, CloseData(), nullptr, false);
+    CoolingExchange(COMMAND_CLOSE, CloseData(), nullptr, true);
+    DiscardStaleReplies();
 
     if(!ok || reply[3] != data_type)
     {
@@ -889,7 +955,8 @@ bool CorsairCommanderCoreController::CoolingWriteEndpoint(unsigned char endpoint
            && CoolingExchange(COMMAND_INFO, none, nullptr, false)
            && CoolingExchange(COMMAND_WRITE, BuildWriteData(data_type, data), nullptr, true);
 
-    CoolingExchange(COMMAND_CLOSE, CloseData(), nullptr, false);
+    CoolingExchange(COMMAND_CLOSE, CloseData(), nullptr, true);
+    DiscardStaleReplies();
 
     return(ok);
 }

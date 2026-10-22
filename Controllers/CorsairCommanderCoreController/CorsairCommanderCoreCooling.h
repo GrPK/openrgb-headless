@@ -42,7 +42,7 @@ constexpr unsigned char COMMAND_INFO                = 0x09;
 constexpr unsigned char COMMAND_READ                = 0x08;
 constexpr unsigned char COMMAND_WRITE               = 0x06;
 constexpr unsigned char COMMAND_CLOSE               = 0x05;
-constexpr unsigned char COOLING_HANDLE             = 0x01;
+constexpr unsigned char COOLING_HANDLE              = 0x01;
 
 /*-----------------------------------------------------*\
 | Upper bounds that reject a garbled reply              |
@@ -73,6 +73,55 @@ struct DutyEntry
     unsigned char   channel;
     unsigned char   duty;
 };
+
+/*-----------------------------------------------------*\
+| The pump is never driven below the floor, whoever asks|
+| Hand-back tables are written when Nexus releases the  |
+| channels, and the fail-safe table when Nexus goes     |
+| silent while duties are commanded                     |
+\*-----------------------------------------------------*/
+constexpr unsigned char PUMP_FLOOR                  = 50;
+constexpr unsigned char RELEASE_PUMP_DUTY           = 70;
+constexpr unsigned char RELEASE_FAN_DUTY            = 50;
+constexpr unsigned char FAILSAFE_DUTY               = 100;
+
+inline void ApplyPumpFloor(std::vector<DutyEntry>& entries, bool has_pump)
+{
+    if(!has_pump)
+    {
+        return;
+    }
+
+    for(size_t i = 0; i < entries.size(); i++)
+    {
+        if(entries[i].channel == 0 && entries[i].duty < PUMP_FLOOR)
+        {
+            entries[i].duty = PUMP_FLOOR;
+        }
+    }
+}
+
+/*-----------------------------------------------------*\
+| One entry per connected channel                       |
+\*-----------------------------------------------------*/
+inline std::vector<DutyEntry> BuildUniformTable(const std::vector<bool>& connected, bool has_pump, unsigned char pump_duty, unsigned char fan_duty)
+{
+    std::vector<DutyEntry> entries;
+
+    for(size_t i = 0; i < connected.size() && i < MAX_CHANNELS; i++)
+    {
+        if(connected[i])
+        {
+            DutyEntry entry;
+
+            entry.channel = (unsigned char)i;
+            entry.duty    = (i == 0 && has_pump) ? pump_duty : fan_duty;
+            entries.push_back(entry);
+        }
+    }
+
+    return(entries);
+}
 
 struct Temperature
 {
