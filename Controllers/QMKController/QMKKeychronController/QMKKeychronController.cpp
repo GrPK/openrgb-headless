@@ -10,6 +10,9 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <chrono>
+#include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 #include "hsv.h"
 #include "QMKKeychronController.h"
@@ -37,6 +40,11 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
     via_protocol_version        = 0;
     wireless_device_pid         = 0;
     wireless_device_vid         = 0;
+    direct_mode                 = false;
+    last_frame_brightness       = -1;
+    last_warning_ms             = 0;
+    suppressed_warnings         = 0;
+    via_reply_timeout           = KEYCHRON_QHE_HID_READ_TIMEOUT;
 
     /*-----------------------------------------------------*\
     | Read product string                                   |
@@ -150,6 +158,8 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
 
     if(!GetSupported())
     {
+        via_reply_timeout = KEYCHRON_QHE_HID_REPLY_TIMEOUT;
+
         return;
     }
 
@@ -195,6 +205,12 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
             keycodes[led_index] = 0;
         }
     }
+
+    /*-----------------------------------------------------*\
+    | Detection is done, so wait for replies only as long   |
+    | as a busy keyboard needs                              |
+    \*-----------------------------------------------------*/
+    via_reply_timeout = KEYCHRON_QHE_HID_REPLY_TIMEOUT;
 
     /*-----------------------------------------------------*\
     | Apply matrix corrections                              |
@@ -316,6 +332,46 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
 {
     unsigned short      led_start_index     = 0;
     unsigned short      number_packet_leds  = 9;
+    unsigned char       frame_brightness    = 0;
+
+    /*-----------------------------------------------------*\
+    | The per-key effect ignores each key's value and shows |
+    | every key at the matrix brightness, so follow the     |
+    | brightest LED in the frame, unsaved. Hardware modes   |
+    | keep their own brightness.                            |
+    \*-----------------------------------------------------*/
+    for(unsigned short led_idx = 0; direct_mode && (led_idx < number_leds); led_idx++)
+    {
+        unsigned char led_max = RGBGetRValue(color_data[led_idx]);
+
+        if(RGBGetGValue(color_data[led_idx]) > led_max)
+        {
+            led_max = RGBGetGValue(color_data[led_idx]);
+        }
+
+        if(RGBGetBValue(color_data[led_idx]) > led_max)
+        {
+            led_max = RGBGetBValue(color_data[led_idx]);
+        }
+
+        if(led_max > frame_brightness)
+        {
+            frame_brightness = led_max;
+        }
+    }
+
+    if(direct_mode && (last_frame_brightness != frame_brightness))
+    {
+        if(CmdSetBrightness(frame_brightness))
+        {
+            last_frame_brightness = frame_brightness;
+        }
+    }
+
+    if(direct_mode && (frame_brightness == 0))
+    {
+        return;
+    }
 
     while(led_start_index < number_leds)
     {
@@ -332,6 +388,12 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
 
 void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, unsigned char hue, unsigned char sat, unsigned char val)
 {
+    /*-----------------------------------------------------*\
+    | The next frame must resend its brightness             |
+    \*-----------------------------------------------------*/
+    last_frame_brightness = -1;
+    direct_mode           = (mode == 0xFFFF);
+
     if(mode == 0xFFFF)
     {
         /*-------------------------------------------------*\
@@ -353,6 +415,40 @@ void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, un
         CmdSetBrightness(val);
         CmdSetSpeed(speed);
     }
+}
+
+void QMKKeychronController::LogReplyWarning(const char* format, ...)
+{
+    /*-----------------------------------------------------*\
+    | Log the first occurrence, then at most once per       |
+    | warning interval with the number of warnings held back|
+    \*-----------------------------------------------------*/
+    long long now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+
+    if((last_warning_ms != 0) && ((now_ms - last_warning_ms) < KEYCHRON_QHE_WARNING_INTERVAL_MS))
+    {
+        suppressed_warnings++;
+        return;
+    }
+
+    char    message[160];
+    va_list args;
+
+    va_start(args, format);
+    vsnprintf(message, sizeof(message), format, args);
+    va_end(args);
+
+    if(suppressed_warnings > 0)
+    {
+        LOG_WARNING("[QMK Keychron] %s (%u more since the last report)", message, suppressed_warnings);
+    }
+    else
+    {
+        LOG_WARNING("[QMK Keychron] %s", message);
+    }
+
+    last_warning_ms     = now_ms;
+    suppressed_warnings = 0;
 }
 
 unsigned short QMKKeychronController::CmdGetKeycode
@@ -611,10 +707,12 @@ void QMKKeychronController::CmdSendLEDs(unsigned char start_index, unsigned char
         args[4 + (led_index * 3)]   = hsv_color.value;
     }
 
-    ViaSendCommandSub(KC_KEYCHRON_RGB, KEYCHRON_RGB_PER_KEY_SET_COLOR, args, sizeof(args), NULL, 0);
+    unsigned char status = 0;
+
+    ViaSendCommandSub(KC_KEYCHRON_RGB, KEYCHRON_RGB_PER_KEY_SET_COLOR, args, sizeof(args), &status, sizeof(status));
 }
 
-void QMKKeychronController::CmdSetBrightness(unsigned char brightness)
+bool QMKKeychronController::CmdSetBrightness(unsigned char brightness)
 {
     unsigned char args[3];
 
@@ -622,7 +720,7 @@ void QMKKeychronController::CmdSetBrightness(unsigned char brightness)
     args[1] = QMK_VIA_RGB_MATRIX_BRIGHTNESS;
     args[2] = brightness;
 
-    ViaSendCommand(QMK_VIA_CMD_CUSTOM_SET_VALUE, args, sizeof(args), NULL, 0);
+    return(ViaSendCommand(QMK_VIA_CMD_CUSTOM_SET_VALUE, args, sizeof(args), NULL, 0) >= 0);
 }
 
 void QMKKeychronController::CmdSetColorHS(unsigned char h, unsigned char s)
@@ -693,21 +791,90 @@ int QMKKeychronController::ViaSendCommand
     usb_buf[1] = cmd;
     memcpy(&usb_buf[2], data_in, data_in_size);
 
-    hid_write(dev, usb_buf, sizeof(usb_buf));
-
     /*-----------------------------------------------------*\
-    | Read response                                         |
+    | Drop reports queued since the last command, such as   |
+    | the layer change notifications the firmware sends on  |
+    | its own                                               |
     \*-----------------------------------------------------*/
-    int bytes_received = hid_read_timeout(dev, usb_buf, sizeof(usb_buf) - 1, KEYCHRON_QHE_HID_READ_TIMEOUT);
+    unsigned char drain_buf[KEYCHRON_QHE_PACKET_SIZE + 1];
 
-    if(usb_buf[0] != cmd)
+    for(unsigned char drain_count = 0; drain_count < 64; drain_count++)
+    {
+        if(hid_read_timeout(dev, drain_buf, sizeof(drain_buf) - 1, 0) <= 0)
+        {
+            break;
+        }
+    }
+
+    if(hid_write(dev, usb_buf, sizeof(usb_buf)) < 0)
     {
         return(-1);
     }
 
-    memcpy(data_out, &usb_buf[1], data_out_size);
+    /*-----------------------------------------------------*\
+    | Read until the reply to this command arrives. The     |
+    | custom value commands echo the channel and value ID.  |
+    \*-----------------------------------------------------*/
+    std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(via_reply_timeout);
 
-    return(bytes_received - 1);
+    unsigned char discarded[4] = { 0 };
+    bool          have_discard = false;
+
+    while(std::chrono::steady_clock::now() < deadline)
+    {
+        int remaining = (int)std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+        int bytes_received = hid_read_timeout(dev, usb_buf, sizeof(usb_buf) - 1, (remaining > 0) ? remaining : 0);
+
+        if(bytes_received < 0)
+        {
+            return(-1);
+        }
+
+        if(bytes_received == 0)
+        {
+            continue;
+        }
+
+        if(usb_buf[0] != cmd
+        || ((cmd == QMK_VIA_CMD_CUSTOM_SET_VALUE || cmd == QMK_VIA_CMD_CUSTOM_GET_VALUE) && data_in_size >= 2 && (usb_buf[1] != data_in[0] || usb_buf[2] != data_in[1]))
+        || (cmd == QMK_VIA_CMD_CUSTOM_SAVE && data_in_size >= 1 && usb_buf[1] != data_in[0]))
+        {
+            if(!have_discard)
+            {
+                memcpy(discarded, usb_buf, sizeof(discarded));
+                have_discard = true;
+            }
+
+            if(usb_buf[0] == 0xFF)
+            {
+                LogReplyWarning("Command %02X was reported unhandled", cmd);
+
+                return(-1);
+            }
+
+            continue;
+        }
+
+        if(have_discard)
+        {
+            LogReplyWarning("Command %02X got a mismatched reply first: %02X %02X %02X %02X", cmd, discarded[0], discarded[1], discarded[2], discarded[3]);
+        }
+
+        memcpy(data_out, &usb_buf[1], data_out_size);
+
+        return(bytes_received - 1);
+    }
+
+    if(have_discard)
+    {
+        LogReplyWarning("Command %02X timed out, first discarded reply: %02X %02X %02X %02X", cmd, discarded[0], discarded[1], discarded[2], discarded[3]);
+    }
+    else
+    {
+        LogReplyWarning("Command %02X timed out", cmd);
+    }
+
+    return(-1);
 }
 
 int QMKKeychronController::ViaSendCommandSub
@@ -738,19 +905,85 @@ int QMKKeychronController::ViaSendCommandSub
     usb_buf[2] = subcmd;
     memcpy(&usb_buf[3], data_in, data_in_size);
 
-    hid_write(dev, usb_buf, sizeof(usb_buf));
-
     /*-----------------------------------------------------*\
-    | Read response                                         |
+    | Drop reports queued since the last command, such as   |
+    | the layer change notifications the firmware sends on  |
+    | its own                                               |
     \*-----------------------------------------------------*/
-    int bytes_received = hid_read_timeout(dev, usb_buf, sizeof(usb_buf) - 1, KEYCHRON_QHE_HID_READ_TIMEOUT);
+    unsigned char drain_buf[KEYCHRON_QHE_PACKET_SIZE + 1];
 
-    if(usb_buf[0] != cmd || usb_buf[1] != subcmd)
+    for(unsigned char drain_count = 0; drain_count < 64; drain_count++)
+    {
+        if(hid_read_timeout(dev, drain_buf, sizeof(drain_buf) - 1, 0) <= 0)
+        {
+            break;
+        }
+    }
+
+    if(hid_write(dev, usb_buf, sizeof(usb_buf)) < 0)
     {
         return(-1);
     }
 
-    memcpy(data_out, &usb_buf[2], data_out_size);
+    /*-----------------------------------------------------*\
+    | Read until the reply to this command arrives          |
+    \*-----------------------------------------------------*/
+    std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(via_reply_timeout);
 
-    return(bytes_received - 2);
+    unsigned char discarded[4] = { 0 };
+    bool          have_discard = false;
+
+    while(std::chrono::steady_clock::now() < deadline)
+    {
+        int remaining = (int)std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+        int bytes_received = hid_read_timeout(dev, usb_buf, sizeof(usb_buf) - 1, (remaining > 0) ? remaining : 0);
+
+        if(bytes_received < 0)
+        {
+            return(-1);
+        }
+
+        if(bytes_received == 0)
+        {
+            continue;
+        }
+
+        if(usb_buf[0] != cmd || usb_buf[1] != subcmd)
+        {
+            if(!have_discard)
+            {
+                memcpy(discarded, usb_buf, sizeof(discarded));
+                have_discard = true;
+            }
+
+            if(usb_buf[0] == 0xFF)
+            {
+                LogReplyWarning("Command %02X %02X was reported unhandled", cmd, subcmd);
+
+                return(-1);
+            }
+
+            continue;
+        }
+
+        if(have_discard)
+        {
+            LogReplyWarning("Command %02X %02X got a mismatched reply first: %02X %02X %02X %02X", cmd, subcmd, discarded[0], discarded[1], discarded[2], discarded[3]);
+        }
+
+        memcpy(data_out, &usb_buf[2], data_out_size);
+
+        return(bytes_received - 2);
+    }
+
+    if(have_discard)
+    {
+        LogReplyWarning("Command %02X %02X timed out, first discarded reply: %02X %02X %02X %02X", cmd, subcmd, discarded[0], discarded[1], discarded[2], discarded[3]);
+    }
+    else
+    {
+        LogReplyWarning("Command %02X %02X timed out", cmd, subcmd);
+    }
+
+    return(-1);
 }
