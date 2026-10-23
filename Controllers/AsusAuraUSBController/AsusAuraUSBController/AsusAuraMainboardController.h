@@ -58,6 +58,8 @@ public:
 
     void SendCommit();
 
+    bool IsPolymoChannel(unsigned char channel);
+
 private:
     unsigned int mode;
     bool         polymo_length_sent;

@@ -44,9 +44,9 @@ AuraMainboardController::AuraMainboardController(hid_device* dev_handle, const c
     }
 
     /*-----------------------------------------------------*\
-    | Add the Polymo display lighting, direct channel 6.    |
-    | The board switches it to direct mode on effect        |
-    | channel 0.                                            |
+    | Add the Polymo display lighting. The board switches   |
+    | it to direct mode on effect channel 0, which another  |
+    | zone owns, so SetMode sends nothing for it.           |
     \*-----------------------------------------------------*/
     if(has_polymo)
     {
@@ -95,11 +95,15 @@ void AuraMainboardController::SetGen1()
     hid_write(dev, usb_buf, 65);
 }
 
+bool AuraMainboardController::IsPolymoChannel(unsigned char channel)
+{
+    return(device_info[channel].device_type == AuraDeviceType::FIXED
+        && device_info[channel].direct_channel == AURA_POLYMO_DIRECT_CHANNEL);
+}
+
 void AuraMainboardController::SetChannelLEDs(unsigned char channel, RGBColor * colors, unsigned int num_colors)
 {
-    if(device_info[channel].device_type == AuraDeviceType::FIXED
-    && device_info[channel].direct_channel == AURA_POLYMO_DIRECT_CHANNEL
-    && !polymo_length_sent)
+    if(IsPolymoChannel(channel) && !polymo_length_sent)
     {
         SendChannelLength(AURA_POLYMO_DIRECT_CHANNEL, AURA_POLYMO_LEDS);
         polymo_length_sent = true;
@@ -136,6 +140,11 @@ void AuraMainboardController::SetMode
     bool            shutdown_effect
     )
 {
+    if(IsPolymoChannel(channel))
+    {
+        return;
+    }
+
     this->mode = mode;
     RGBColor color = ToRGBColor(red, grn, blu);
 
