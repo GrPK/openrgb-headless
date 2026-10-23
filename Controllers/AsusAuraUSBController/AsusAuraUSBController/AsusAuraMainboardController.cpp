@@ -9,7 +9,6 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
-#include <cstdio>
 #include <cstring>
 #include "AsusAuraMainboardController.h"
 
@@ -48,20 +47,11 @@ AuraMainboardController::AuraMainboardController(hid_device* dev_handle, const c
     | it to direct mode on effect channel 0, which another  |
     | zone owns, so SetMode sends nothing for it.           |
     \*-----------------------------------------------------*/
-    if(has_polymo)
+    unsigned char num_polymo_leds           = config_table[AURA_CONFIG_POLYMO_LEDS];
+
+    if(has_polymo && num_polymo_leds > 0 && num_polymo_leds <= AURA_POLYMO_MAX_LEDS)
     {
-        device_info.push_back({0x00, AURA_POLYMO_DIRECT_CHANNEL, AURA_POLYMO_LEDS, 0, AuraDeviceType::FIXED});
-
-        std::string table;
-        char        hex[4];
-
-        for(int i = 0; i < 60; i++)
-        {
-            snprintf(hex, sizeof(hex), "%02X ", config_table[i]);
-            table += hex;
-        }
-
-        LOG_WARNING("[%s] ASUS Aura USB config table: %s", name.c_str(), table.c_str());
+        device_info.push_back({0x00, AURA_POLYMO_DIRECT_CHANNEL, num_polymo_leds, 0, AuraDeviceType::FIXED});
     }
 
     SetGen1();
@@ -105,7 +95,7 @@ void AuraMainboardController::SetChannelLEDs(unsigned char channel, RGBColor * c
 {
     if(IsPolymoChannel(channel) && !polymo_length_sent)
     {
-        SendChannelLength(AURA_POLYMO_DIRECT_CHANNEL, AURA_POLYMO_LEDS);
+        SendChannelLength(AURA_POLYMO_DIRECT_CHANNEL, device_info[channel].num_leds);
         polymo_length_sent = true;
     }
 
@@ -140,8 +130,13 @@ void AuraMainboardController::SetMode
     bool            shutdown_effect
     )
 {
+    /*-----------------------------------------------------*\
+    | Resend the Polymo channel length before the next      |
+    | direct write, in case the board reset it              |
+    \*-----------------------------------------------------*/
     if(IsPolymoChannel(channel))
     {
+        polymo_length_sent = false;
         return;
     }
 
