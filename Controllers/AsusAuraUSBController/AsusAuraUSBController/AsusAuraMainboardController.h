@@ -20,13 +20,14 @@ enum
 {
     AURA_MAINBOARD_CONTROL_MODE_EFFECT            = 0x35,     /* Effect control mode                  */
     AURA_MAINBOARD_CONTROL_MODE_EFFECT_COLOR      = 0x36,     /* Effect color control mode            */
+    AURA_MAINBOARD_CONTROL_MODE_CHANNEL_LENGTH    = 0x3B,     /* Direct channel LED count             */
     AURA_MAINBOARD_CONTROL_MODE_COMMIT            = 0x3F,     /* Commit mode                          */
 };
 
 class AuraMainboardController : public AuraUSBController
 {
 public:
-    AuraMainboardController(hid_device* dev_handle, const char* path, std::string dev_name);
+    AuraMainboardController(hid_device* dev_handle, const char* path, std::string dev_name, bool has_polymo = false);
     ~AuraMainboardController();
 
     void SetChannelLEDs
@@ -59,6 +60,7 @@ public:
 
 private:
     unsigned int mode;
+    bool         polymo_length_sent;
 
     unsigned short GetMask(int start, int size);
 
@@ -76,6 +78,12 @@ private:
         unsigned char   led_count,
         unsigned char*  led_data,
         bool            shutdown_effect
+        );
+
+    void SendChannelLength
+        (
+        unsigned char   channel,
+        unsigned short  led_count
         );
 
     void SetGen1();

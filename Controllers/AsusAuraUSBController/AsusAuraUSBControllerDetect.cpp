@@ -194,7 +194,7 @@ DetectedControllers DetectAsusAuraUSBMotherboards(hid_device_info* info, const s
         try
         {
             DMIInfo                      dmi;
-            AuraMainboardController*     controller         = new AuraMainboardController(dev, info->path, "ASUS " + dmi.getMainboard());
+            AuraMainboardController*     controller         = new AuraMainboardController(dev, info->path, "ASUS " + dmi.getMainboard(), info->product_id == AURA_MOTHERBOARD_5_PID);
             RGBController_AuraMainboard* rgb_controller     = new RGBController_AuraMainboard(controller);
 
             detected_controllers.push_back(rgb_controller);

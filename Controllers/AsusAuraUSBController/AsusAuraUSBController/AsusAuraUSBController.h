@@ -62,6 +62,9 @@ enum class AuraDeviceType
 
 #define LEDS_PER_PACKET  0x14
 
+#define AURA_POLYMO_DIRECT_CHANNEL  0x06
+#define AURA_POLYMO_LEDS            3
+
 struct AuraDeviceInfo
 {
     unsigned char   effect_channel;

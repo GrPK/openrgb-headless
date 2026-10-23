@@ -9,10 +9,11 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <cstdio>
 #include <cstring>
 #include "AsusAuraMainboardController.h"
 
-AuraMainboardController::AuraMainboardController(hid_device* dev_handle, const char* path, std::string dev_name) : AuraUSBController(dev_handle, path, dev_name), mode(AURA_MODE_DIRECT)
+AuraMainboardController::AuraMainboardController(hid_device* dev_handle, const char* path, std::string dev_name, bool has_polymo) : AuraUSBController(dev_handle, path, dev_name), mode(AURA_MODE_DIRECT), polymo_length_sent(false)
 {
     unsigned char num_total_mainboard_leds  = config_table[0x1B];
     unsigned char num_rgb_headers           = config_table[0x1D];
@@ -40,6 +41,27 @@ AuraMainboardController::AuraMainboardController(hid_device* dev_handle, const c
     {
         device_info.push_back({effect_channel, (unsigned char)i, 0x01, 0, AuraDeviceType::ADDRESSABLE});
         effect_channel++;
+    }
+
+    /*-----------------------------------------------------*\
+    | Add the Polymo display lighting, direct channel 6.    |
+    | The board switches it to direct mode on effect        |
+    | channel 0.                                            |
+    \*-----------------------------------------------------*/
+    if(has_polymo)
+    {
+        device_info.push_back({0x00, AURA_POLYMO_DIRECT_CHANNEL, AURA_POLYMO_LEDS, 0, AuraDeviceType::FIXED});
+
+        std::string table;
+        char        hex[4];
+
+        for(int i = 0; i < 60; i++)
+        {
+            snprintf(hex, sizeof(hex), "%02X ", config_table[i]);
+            table += hex;
+        }
+
+        LOG_WARNING("[%s] ASUS Aura USB config table: %s", name.c_str(), table.c_str());
     }
 
     SetGen1();
@@ -75,6 +97,14 @@ void AuraMainboardController::SetGen1()
 
 void AuraMainboardController::SetChannelLEDs(unsigned char channel, RGBColor * colors, unsigned int num_colors)
 {
+    if(device_info[channel].device_type == AuraDeviceType::FIXED
+    && device_info[channel].direct_channel == AURA_POLYMO_DIRECT_CHANNEL
+    && !polymo_length_sent)
+    {
+        SendChannelLength(AURA_POLYMO_DIRECT_CHANNEL, AURA_POLYMO_LEDS);
+        polymo_length_sent = true;
+    }
+
     SendDirect
     (
         device_info[channel].direct_channel,
@@ -138,6 +168,34 @@ void AuraMainboardController::SetMode
         led_data,
         shutdown_effect
     );
+}
+
+void AuraMainboardController::SendChannelLength
+    (
+    unsigned char   channel,
+    unsigned short  led_count
+    )
+{
+    unsigned char usb_buf[65];
+
+    /*-----------------------------------------------------*\
+    | Zero out buffer                                       |
+    \*-----------------------------------------------------*/
+    memset(usb_buf, 0x00, sizeof(usb_buf));
+
+    /*-----------------------------------------------------*\
+    | Set up message packet                                 |
+    \*-----------------------------------------------------*/
+    usb_buf[0x00]   = 0xEC;
+    usb_buf[0x01]   = AURA_MAINBOARD_CONTROL_MODE_CHANNEL_LENGTH;
+    usb_buf[0x02]   = channel;
+    usb_buf[0x03]   = led_count >> 8;
+    usb_buf[0x04]   = led_count & 0xFF;
+
+    /*-----------------------------------------------------*\
+    | Send packet                                           |
+    \*-----------------------------------------------------*/
+    hid_write(dev, usb_buf, 65);
 }
 
 unsigned short AuraMainboardController::GetMask(int start, int size)
