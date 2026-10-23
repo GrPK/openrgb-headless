@@ -44,12 +44,17 @@ AuraMainboardController::AuraMainboardController(hid_device* dev_handle, const c
 
     /*-----------------------------------------------------*\
     | Add the Polymo display lighting. The board switches   |
-    | it to direct mode on effect channel 0, which another  |
-    | zone owns, so SetMode sends nothing for it.           |
+    | it to direct mode on the first effect channel, which  |
+    | another zone owns, so SetMode sends nothing for it.   |
+    | Skipped when an addressable header owns its direct    |
+    | channel.                                              |
     \*-----------------------------------------------------*/
     unsigned char num_polymo_leds           = config_table[AURA_CONFIG_POLYMO_LEDS];
 
-    if(has_polymo && num_polymo_leds > 0 && num_polymo_leds <= AURA_POLYMO_MAX_LEDS)
+    if(has_polymo
+    && num_addressable_headers <= AURA_POLYMO_DIRECT_CHANNEL
+    && num_polymo_leds > 0
+    && num_polymo_leds <= AURA_POLYMO_MAX_LEDS)
     {
         device_info.push_back({0x00, AURA_POLYMO_DIRECT_CHANNEL, num_polymo_leds, 0, AuraDeviceType::FIXED});
     }
@@ -131,8 +136,8 @@ void AuraMainboardController::SetMode
     )
 {
     /*-----------------------------------------------------*\
-    | Resend the Polymo channel length before the next      |
-    | direct write, in case the board reset it              |
+    | A mode update resends the Polymo channel length       |
+    | before the next direct write                          |
     \*-----------------------------------------------------*/
     if(IsPolymoChannel(channel))
     {

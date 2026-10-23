@@ -63,7 +63,7 @@ enum class AuraDeviceType
 #define LEDS_PER_PACKET  0x14
 
 #define AURA_POLYMO_DIRECT_CHANNEL  0x06
-#define AURA_POLYMO_MAX_LEDS        LEDS_PER_PACKET
+#define AURA_POLYMO_MAX_LEDS        LEDS_PER_PACKET     /* Sanity cap on the config table count */
 
 /*---------------------------------------------------------*\
 | Config table offset of the Polymo LED count               |
