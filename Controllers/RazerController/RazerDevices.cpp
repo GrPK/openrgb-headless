@@ -2858,7 +2858,7 @@ static const razer_device huntsman_elite_device =
 |                                                               |
 | Zone "Underglow"                                              |
 |       Matrix                                                  |
-|       3 Rows, 22 Columns                                      |
+|       2 Rows, 22 Columns                                      |
 \*-------------------------------------------------------------*/
 static const razer_zone huntsman_v2_analog_keyboard_zone =
 {
@@ -2872,7 +2872,7 @@ static const razer_zone huntsman_v2_analog_underglow_zone =
 {
     "Underglow",
     ZONE_TYPE_MATRIX,
-    3,
+    2,
     22
 };
 
@@ -2883,8 +2883,8 @@ static const razer_device huntsman_v2_analog_device =
     DEVICE_TYPE_KEYBOARD,
     RAZER_MATRIX_TYPE_EXTENDED,
     0x1F,
-    9,
-    22,
+    8,
+    23,
     {
         &huntsman_v2_analog_keyboard_zone,
         &huntsman_v2_analog_underglow_zone,

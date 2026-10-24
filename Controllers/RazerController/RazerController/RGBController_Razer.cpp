@@ -363,6 +363,8 @@ void RGBController_Razer::DeviceUpdateSingleLED(int /*led*/)
 
 void RGBController_Razer::DeviceUpdateMode()
 {
+    controller->InvalidateCustomFrame();
+
     switch(modes[active_mode].value)
     {
         case RAZER_MODE_OFF:

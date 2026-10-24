@@ -310,8 +310,88 @@ void RazerController::SetBrightness(unsigned char brightness)
     razer_set_brightness(brightness);
 }
 
+void RazerController::InvalidateCustomFrame()
+{
+    custom_frame_applied = false;
+}
+
+void RazerController::SetLEDsHuntsmanV2Analog(RGBColor* colors)
+{
+    /*---------------------------------------------------------*\
+    | The device takes a fixed matrix of eight rows and one more |
+    | column than the keys use. Writing any other row corrupts   |
+    | its key scan state, so only these rows are ever sent. The  |
+    | zones supply the keyboard rows first, then the underglow   |
+    | rows, in that order.                                       |
+    \*---------------------------------------------------------*/
+    const unsigned int  wire_rows           = 8;
+    const unsigned int  wire_cols           = 23;
+    const razer_device* device              = device_list[device_index];
+    const unsigned int  key_rows            = device->zones[0]->rows;
+    const unsigned int  key_cols            = device->zones[0]->cols;
+    const unsigned int  glow_rows           = device->zones[1]->rows;
+    const unsigned int  glow_cols           = device->zones[1]->cols;
+    unsigned char       row_data[wire_cols * 3];
+
+    for(unsigned int row = 0; row < wire_rows; row++)
+    {
+        const RGBColor* source              = NULL;
+        unsigned int    source_cols         = 0;
+
+        if(row < key_rows)
+        {
+            source                          = &colors[row * key_cols];
+            source_cols                     = key_cols;
+        }
+        else if((row - key_rows) < glow_rows)
+        {
+            source                          = &colors[(key_rows * key_cols) + ((row - key_rows) * glow_cols)];
+            source_cols                     = glow_cols;
+        }
+
+        memset(row_data, 0, sizeof(row_data));
+
+        for(unsigned int col = 0; (source != NULL) && (col < source_cols) && (col < wire_cols); col++)
+        {
+            row_data[(col * 3) + 0]         = RGBGetRValue(source[col]);
+            row_data[(col * 3) + 1]         = RGBGetGValue(source[col]);
+            row_data[(col * 3) + 2]         = RGBGetBValue(source[col]);
+        }
+
+        std::this_thread::sleep_for(1ms);
+
+        razer_set_custom_frame((unsigned char)row, 0, (unsigned char)(wire_cols - 1), row_data);
+    }
+
+    /*---------------------------------------------------------*\
+    | The vendor app selects the custom effect once per mode     |
+    | change, not per frame. Repeat it now and then so a device  |
+    | that left the effect after a sleep resumes showing frames  |
+    \*---------------------------------------------------------*/
+    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+
+    if(!custom_frame_applied || (now - custom_frame_applied_at) > 10s)
+    {
+        razer_report report                 = razer_create_report(0x0F, 0x02, 0x06);
+
+        report.arguments[2]                 = 0x08;
+
+        std::this_thread::sleep_for(1ms);
+        razer_usb_send(&report);
+
+        custom_frame_applied_at             = now;
+        custom_frame_applied                = true;
+    }
+}
+
 void RazerController::SetLEDs(RGBColor* colors)
 {
+    if(dev_pid == RAZER_HUNTSMAN_V2_ANALOG_PID)
+    {
+        SetLEDsHuntsmanV2Analog(colors);
+        return;
+    }
+
     /*---------------------------------------------------------*\
     | Get the matrix layout information from the device list    |
     \*---------------------------------------------------------*/
