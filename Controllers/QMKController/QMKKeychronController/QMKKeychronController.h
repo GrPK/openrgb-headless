@@ -113,12 +113,11 @@ enum KeychronVIABacklightValueID
 };
 
 /*---------------------------------------------------------*\
-| Q1 HE effect IDs                                          |
+| Per Key RGB effect ID fallback                            |
 |                                                           |
-|   Determined by the number of standard effects enabled    |
-|   in the Q1 HE firmware (info.json animations) +          |
-|   2 custom effects (PER_KEY_RGB, MIXED_RGB).              |
-|   May need adjustment for other firmware versions.        |
+|   The id follows the number of animations the firmware    |
+|   enables, so it is read from the keyboard; this value is |
+|   used only when that read fails.                         |
 \*---------------------------------------------------------*/
 #define KEYCHRON_QHE_PER_KEY_RGB_EFFECT             23
 
@@ -167,6 +166,7 @@ private:
     std::string                             location;
     std::string                             name;
     unsigned short                          number_leds;
+    int                                     per_key_effect;
     std::string                             serial;
     unsigned int                            suppressed_warnings;
     unsigned short                          supported_features;
@@ -182,6 +182,7 @@ private:
     void                                    CmdGetKeychronRGBProtocolVersion(unsigned short* kc_rgb_protocol_version);
     std::vector<unsigned char>              CmdGetLEDIndexByRow(unsigned char row);
     void                                    CmdGetNumberLEDs(unsigned short* number_leds);
+    int                                     CmdGetRGBMatrixMode();
     void                                    CmdGetSupportFeature(unsigned short* supported_features);
     void                                    CmdGetViaProtocolVersion(unsigned short* via_protocol_version);
     void                                    CmdGetWirelessDeviceInfo(unsigned short* wireless_vid, unsigned short* wireless_pid);
@@ -194,6 +195,7 @@ private:
     void                                    CmdSetPerKeyRGBType(unsigned char type);
     void                                    CmdSetRGBMatrixMode(unsigned char mode);
     void                                    CmdSetSpeed(unsigned char speed);
+    unsigned char                           GetPerKeyEffect();
     void                                    LogReplyWarning(const char* format, ...);
 
     int ViaSendCommand

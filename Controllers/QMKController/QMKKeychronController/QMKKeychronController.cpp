@@ -43,6 +43,7 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
     direct_mode                 = false;
     last_frame_brightness       = -1;
     last_warning_ms             = 0;
+    per_key_effect              = 0;
     suppressed_warnings         = 0;
     via_reply_timeout           = KEYCHRON_QHE_HID_READ_TIMEOUT;
 
@@ -405,7 +406,7 @@ void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, un
         \*-------------------------------------------------*/
         CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS);
         CmdSaveRGBMatrix();
-        CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
+        CmdSetRGBMatrixMode(GetPerKeyEffect());
         CmdSetPerKeyRGBType(KEYCHRON_PER_KEY_RGB_SOLID);
     }
     else
@@ -415,6 +416,35 @@ void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, un
         CmdSetBrightness(val);
         CmdSetSpeed(speed);
     }
+}
+
+unsigned char QMKKeychronController::GetPerKeyEffect()
+{
+    /*-----------------------------------------------------*\
+    | The effect id depends on how many animations the      |
+    | firmware enables. The custom effects come last, Per   |
+    | Key RGB then Mix RGB, and the firmware clamps an      |
+    | out of range mode to the last effect, so asking for   |
+    | the highest id reveals Mix RGB and Per Key RGB is the |
+    | one before it. The switch is not saved.               |
+    \*-----------------------------------------------------*/
+    if(per_key_effect == 0)
+    {
+        CmdSetRGBMatrixMode(0xFF);
+
+        int last_effect = CmdGetRGBMatrixMode();
+
+        if((last_effect > 2) && (last_effect < 0xFF))
+        {
+            per_key_effect = last_effect - 1;
+        }
+        else
+        {
+            return(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
+        }
+    }
+
+    return((unsigned char)per_key_effect);
 }
 
 void QMKKeychronController::LogReplyWarning(const char* format, ...)
@@ -667,6 +697,22 @@ std::string QMKKeychronController::CmdGetWirelessKeyboardFirmwareVersion()
 void QMKKeychronController::CmdSaveMode()
 {
     ViaSendCommandSub(KC_KEYCHRON_RGB, KEYCHRON_RGB_SAVE, NULL, 0, NULL, 0);
+}
+
+int QMKKeychronController::CmdGetRGBMatrixMode()
+{
+    unsigned char args[2];
+    unsigned char response[3] = { 0 };
+
+    args[0] = QMK_VIA_RGB_MATRIX_CHANNEL;
+    args[1] = QMK_VIA_RGB_MATRIX_EFFECT;
+
+    if(ViaSendCommand(QMK_VIA_CMD_CUSTOM_GET_VALUE, args, sizeof(args), response, sizeof(response)) <= 0)
+    {
+        return(-1);
+    }
+
+    return(response[2]);
 }
 
 void QMKKeychronController::CmdSaveRGBMatrix()
