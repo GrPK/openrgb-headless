@@ -406,6 +406,9 @@ void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, un
         \*-------------------------------------------------*/
         CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS);
         CmdSaveRGBMatrix();
+        /* The save only writes when one value changed since the last save, so the first one only clears the mask */
+        CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS);
+        CmdSaveRGBMatrix();
         CmdSetRGBMatrixMode(GetPerKeyEffect());
         CmdSetPerKeyRGBType(KEYCHRON_PER_KEY_RGB_SOLID);
     }
@@ -430,11 +433,31 @@ unsigned char QMKKeychronController::GetPerKeyEffect()
     \*-----------------------------------------------------*/
     if(per_key_effect == 0)
     {
+        /*-------------------------------------------------*\
+        | A firmware that ignores the probe leaves the      |
+        | current effect in place, so a readback equal to   |
+        | the prior mode is probed again from a known mode. |
+        \*-------------------------------------------------*/
+        int prior_effect = CmdGetRGBMatrixMode();
+
         CmdSetRGBMatrixMode(0xFF);
 
         int last_effect = CmdGetRGBMatrixMode();
 
-        if((last_effect > 2) && (last_effect < 0xFF))
+        if(last_effect == prior_effect)
+        {
+            CmdSetRGBMatrixMode(1);
+            CmdSetRGBMatrixMode(0xFF);
+
+            last_effect = CmdGetRGBMatrixMode();
+
+            if(last_effect == 1)
+            {
+                return(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
+            }
+        }
+
+        if(last_effect > 2)
         {
             per_key_effect = last_effect - 1;
         }
