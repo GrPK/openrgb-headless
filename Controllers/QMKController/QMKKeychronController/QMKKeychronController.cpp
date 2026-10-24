@@ -403,12 +403,23 @@ void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, un
         | reloads from EEPROM when the effect changes, so   |
         | save brightness before switching effects. The     |
         | effect itself is left unsaved.                    |
+        |                                                   |
+        | The save writes only when exactly one value was   |
+        | set since the last save and always discards the   |
+        | set values, so the first save drops stale ones.   |
+        | Saving only after a brightness write that landed  |
+        | keeps the effect out of EEPROM.                   |
         \*-------------------------------------------------*/
-        CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS);
-        CmdSaveRGBMatrix();
-        /* The save only writes when one value changed since the last save, so the first one only clears the mask */
-        CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS);
-        CmdSaveRGBMatrix();
+        if(CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS))
+        {
+            CmdSaveRGBMatrix();
+        }
+
+        if(CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS))
+        {
+            CmdSaveRGBMatrix();
+        }
+
         CmdSetRGBMatrixMode(GetPerKeyEffect());
         CmdSetPerKeyRGBType(KEYCHRON_PER_KEY_RGB_SOLID);
     }
@@ -436,7 +447,8 @@ unsigned char QMKKeychronController::GetPerKeyEffect()
         /*-------------------------------------------------*\
         | A firmware that ignores the probe leaves the      |
         | current effect in place, so a readback equal to   |
-        | the prior mode is probed again from a known mode. |
+        | the prior mode, or a prior read that failed, is   |
+        | probed again from a known mode.                   |
         \*-------------------------------------------------*/
         int prior_effect = CmdGetRGBMatrixMode();
 
@@ -444,7 +456,7 @@ unsigned char QMKKeychronController::GetPerKeyEffect()
 
         int last_effect = CmdGetRGBMatrixMode();
 
-        if(last_effect == prior_effect)
+        if((prior_effect < 0) || (last_effect == prior_effect))
         {
             CmdSetRGBMatrixMode(1);
             CmdSetRGBMatrixMode(0xFF);
@@ -457,7 +469,7 @@ unsigned char QMKKeychronController::GetPerKeyEffect()
             }
         }
 
-        if(last_effect > 2)
+        if((last_effect > 2) && (last_effect < 0xFF))
         {
             per_key_effect = last_effect - 1;
         }
