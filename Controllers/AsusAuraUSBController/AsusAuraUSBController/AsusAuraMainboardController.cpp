@@ -12,7 +12,7 @@
 #include <cstring>
 #include "AsusAuraMainboardController.h"
 
-AuraMainboardController::AuraMainboardController(hid_device* dev_handle, const char* path, std::string dev_name) : AuraUSBController(dev_handle, path, dev_name), mode(AURA_MODE_DIRECT)
+AuraMainboardController::AuraMainboardController(hid_device* dev_handle, const char* path, std::string dev_name, bool has_polymo) : AuraUSBController(dev_handle, path, dev_name), mode(AURA_MODE_DIRECT), polymo_length_sent(false)
 {
     unsigned char num_total_mainboard_leds  = config_table[0x1B];
     unsigned char num_rgb_headers           = config_table[0x1D];
@@ -40,6 +40,23 @@ AuraMainboardController::AuraMainboardController(hid_device* dev_handle, const c
     {
         device_info.push_back({effect_channel, (unsigned char)i, 0x01, 0, AuraDeviceType::ADDRESSABLE});
         effect_channel++;
+    }
+
+    /*-----------------------------------------------------*\
+    | Add the Polymo display lighting. The board switches   |
+    | it to direct mode on the first effect channel, which  |
+    | another zone owns, so SetMode sends nothing for it.   |
+    | Skipped when an addressable header owns its direct    |
+    | channel.                                              |
+    \*-----------------------------------------------------*/
+    unsigned char num_polymo_leds           = config_table[AURA_CONFIG_POLYMO_LEDS];
+
+    if(has_polymo
+    && num_addressable_headers <= AURA_POLYMO_DIRECT_CHANNEL
+    && num_polymo_leds > 0
+    && num_polymo_leds <= AURA_POLYMO_MAX_LEDS)
+    {
+        device_info.push_back({0x00, AURA_POLYMO_DIRECT_CHANNEL, num_polymo_leds, 0, AuraDeviceType::FIXED});
     }
 
     SetGen1();
@@ -73,8 +90,20 @@ void AuraMainboardController::SetGen1()
     hid_write(dev, usb_buf, 65);
 }
 
+bool AuraMainboardController::IsPolymoChannel(unsigned char channel)
+{
+    return(device_info[channel].device_type == AuraDeviceType::FIXED
+        && device_info[channel].direct_channel == AURA_POLYMO_DIRECT_CHANNEL);
+}
+
 void AuraMainboardController::SetChannelLEDs(unsigned char channel, RGBColor * colors, unsigned int num_colors)
 {
+    if(IsPolymoChannel(channel) && !polymo_length_sent)
+    {
+        SendChannelLength(AURA_POLYMO_DIRECT_CHANNEL, device_info[channel].num_leds);
+        polymo_length_sent = true;
+    }
+
     SendDirect
     (
         device_info[channel].direct_channel,
@@ -106,6 +135,16 @@ void AuraMainboardController::SetMode
     bool            shutdown_effect
     )
 {
+    /*-----------------------------------------------------*\
+    | A mode update resends the Polymo channel length       |
+    | before the next direct write                          |
+    \*-----------------------------------------------------*/
+    if(IsPolymoChannel(channel))
+    {
+        polymo_length_sent = false;
+        return;
+    }
+
     this->mode = mode;
     RGBColor color = ToRGBColor(red, grn, blu);
 
@@ -138,6 +177,34 @@ void AuraMainboardController::SetMode
         led_data,
         shutdown_effect
     );
+}
+
+void AuraMainboardController::SendChannelLength
+    (
+    unsigned char   channel,
+    unsigned short  led_count
+    )
+{
+    unsigned char usb_buf[65];
+
+    /*-----------------------------------------------------*\
+    | Zero out buffer                                       |
+    \*-----------------------------------------------------*/
+    memset(usb_buf, 0x00, sizeof(usb_buf));
+
+    /*-----------------------------------------------------*\
+    | Set up message packet                                 |
+    \*-----------------------------------------------------*/
+    usb_buf[0x00]   = 0xEC;
+    usb_buf[0x01]   = AURA_MAINBOARD_CONTROL_MODE_CHANNEL_LENGTH;
+    usb_buf[0x02]   = channel;
+    usb_buf[0x03]   = led_count >> 8;
+    usb_buf[0x04]   = led_count & 0xFF;
+
+    /*-----------------------------------------------------*\
+    | Send packet                                           |
+    \*-----------------------------------------------------*/
+    hid_write(dev, usb_buf, 65);
 }
 
 unsigned short AuraMainboardController::GetMask(int start, int size)

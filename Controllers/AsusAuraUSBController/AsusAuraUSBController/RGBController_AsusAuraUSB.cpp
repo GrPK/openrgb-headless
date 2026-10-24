@@ -224,7 +224,7 @@ void RGBController_AuraUSB::SetupZones()
 
         if(device_info.device_type == AuraDeviceType::FIXED)
         {
-            zones[channel_idx].name                     = "Aura Mainboard";
+            zones[channel_idx].name                     = (device_info.direct_channel == AURA_POLYMO_DIRECT_CHANNEL) ? "Polymo Lighting" : "Aura Mainboard";
             zones[channel_idx].type                     = ZONE_TYPE_LINEAR;
             zones[channel_idx].leds_min                 = device_info.num_leds;
             zones[channel_idx].leds_max                 = device_info.num_leds;

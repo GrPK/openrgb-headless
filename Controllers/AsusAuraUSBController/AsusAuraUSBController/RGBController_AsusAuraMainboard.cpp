@@ -62,7 +62,8 @@ void RGBController_AuraMainboard::DeviceUpdateShutdownEffect()
         /*---------------------------------------------------*\
         | Shutdown effect only works with onboard lighting    |
         \*---------------------------------------------------*/
-        if(device_info.device_type == AuraDeviceType::FIXED && zones[zone_idx].leds_count > 0)
+        if(device_info.device_type == AuraDeviceType::FIXED && zones[zone_idx].leds_count > 0
+        && !((AuraMainboardController*) controller)->IsPolymoChannel(zone_idx))
         {
             ((AuraMainboardController*) controller)->SetMode(zone_idx, modes[active_mode].value, red, grn, blu, true);
         }
