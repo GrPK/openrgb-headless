@@ -65,6 +65,16 @@ RazerController::RazerController(hid_device* dev_handle, hid_device* dev_argb_ha
     \*-----------------------------------------------------------------*/
     dev_transaction_id = device_list[device_index]->transaction_id;
 
+    /*-----------------------------------------------------------------*\
+    | The Huntsman V2 Analog drops and repeats key presses when custom  |
+    | frame rows arrive faster than it acknowledges them, so read the   |
+    | status of each report before sending the next                     |
+    \*-----------------------------------------------------------------*/
+    if(dev_pid == RAZER_HUNTSMAN_V2_ANALOG_PID)
+    {
+        wait_for_response = true;
+    }
+
     switch(dev_pid)
     {
         case RAZER_CHARGING_PAD_CHROMA_PID:

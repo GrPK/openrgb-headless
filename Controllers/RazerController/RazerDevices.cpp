@@ -2882,7 +2882,7 @@ static const razer_device huntsman_v2_analog_device =
     RAZER_HUNTSMAN_V2_ANALOG_PID,
     DEVICE_TYPE_KEYBOARD,
     RAZER_MATRIX_TYPE_EXTENDED,
-    0x3F,
+    0x1F,
     9,
     22,
     {
