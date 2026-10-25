@@ -33,6 +33,9 @@ public:
 private:
     MSIGPUv2Controller* controller;
     bool                rainbow_variants;
+    bool                direct_ready;
+    RGBColor            direct_color;
 
     void       DeviceUpdateAll(const mode& current_mode);
+    void       UpdateDirectColor(RGBColor color);
 };

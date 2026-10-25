@@ -28,6 +28,8 @@ static const unsigned char speed_values[3]      = { 0x04, 0x02, 0x01 };
 RGBController_MSIGPUv2::RGBController_MSIGPUv2(MSIGPUv2Controller * controller_ptr, int msi_gpu_id)
 {
     controller                      = controller_ptr;
+    direct_ready                    = false;
+    direct_color                    = 0;
 
     name                            = controller->GetDeviceName();
     vendor                          = "MSI";
@@ -576,17 +578,57 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
     {
         controller->SetMode(current_mode.value);
     }
+
+    /*---------------------------------------------------------*\
+    | Once the card is in Direct mode, colour updates only need |
+    | the colour registers                                      |
+    \*---------------------------------------------------------*/
+    direct_ready = (current_mode.value == MSI_GPU_V2_MODE_STATIC);
+    direct_color = colors[0];
 }
 
+void RGBController_MSIGPUv2::UpdateDirectColor(RGBColor color)
+{
+    if(RGBGetRValue(color) != RGBGetRValue(direct_color))
+    {
+        controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_R1, RGBGetRValue(color));
+    }
+
+    if(RGBGetGValue(color) != RGBGetGValue(direct_color))
+    {
+        controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_G1, RGBGetGValue(color));
+    }
+
+    if(RGBGetBValue(color) != RGBGetBValue(direct_color))
+    {
+        controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_B1, RGBGetBValue(color));
+    }
+
+    direct_color = color;
+}
 
 void RGBController_MSIGPUv2::DeviceUpdateLEDs()
 {
-    DeviceUpdateAll(modes[active_mode]);
+    /*---------------------------------------------------------*\
+    | The full sequence is seven register writes, each followed |
+    | by a 20 ms wait, so a client streaming colours in Direct  |
+    | mode fell behind its effect. After the first update only  |
+    | the colour registers that changed are written; a mode or  |
+    | brightness change still goes through the full sequence    |
+    \*---------------------------------------------------------*/
+    if(direct_ready && (modes[active_mode].value == MSI_GPU_V2_MODE_STATIC))
+    {
+        UpdateDirectColor(colors[0]);
+    }
+    else
+    {
+        DeviceUpdateAll(modes[active_mode]);
+    }
 }
 
 void RGBController_MSIGPUv2::DeviceUpdateZoneLEDs(int /*zone*/)
 {
-    DeviceUpdateAll(modes[active_mode]);
+    DeviceUpdateLEDs();
 }
 
 
