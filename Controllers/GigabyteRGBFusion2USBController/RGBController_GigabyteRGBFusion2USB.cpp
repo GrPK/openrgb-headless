@@ -1313,6 +1313,24 @@ void RGBController_RGBFusion2USB::SetupZones()
 
     controller->SetLedCount(d1, d2, d3, d4, d5, d6);
     controller->SetStripBuiltinEffectState(-1, false);
+
+    /*-----------------------------------------------------*\
+    | Fixed LED10/LED11 zones are driven by effect packets, |
+    | so keep built-in effects enabled on those onboard     |
+    | ARGB outputs                                          |
+    \*-----------------------------------------------------*/
+    for(std::size_t zone_idx = 0; zone_idx < zones.size(); zone_idx++)
+    {
+        const gb_fusion2_zone* zone_at_idx = (*instance_layout.zones)[zone_idx];
+
+        if(zone_at_idx
+        && zones[zone_idx].type == ZONE_TYPE_SINGLE
+        && (zone_at_idx->idx == LED10 || zone_at_idx->idx == LED11))
+        {
+            controller->SetStripBuiltinEffectState(zone_at_idx->idx, true);
+        }
+    }
+
     SetupColors();
 }
 

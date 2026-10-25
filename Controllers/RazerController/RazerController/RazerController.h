@@ -285,6 +285,7 @@ public:
     void                    SetBrightness(unsigned char brightness);
 
     void                    SetLEDs(RGBColor* colors);
+    void                    InvalidateCustomFrame();
     void                    SetAddressableZoneSizes(unsigned char zone_1_size, unsigned char zone_2_size, unsigned char zone_3_size, unsigned char zone_4_size, unsigned char zone_5_size, unsigned char zone_6_size);
 
     void                    SetModeBreathingRandom();
@@ -318,6 +319,8 @@ private:
     \*---------------------------------------------------------*/
     unsigned char           dev_transaction_id;
     bool                    wait_for_response;
+    std::atomic<bool>       custom_frame_applied{false};
+    std::chrono::steady_clock::time_point custom_frame_applied_at;
     std::mutex              send_mutex;
     unsigned char           dev_led_id;
     bool                    effect_list_valid;
@@ -404,6 +407,7 @@ private:
     void                    razer_set_mode_breathing_one_color(unsigned char red, unsigned char grn, unsigned char blu);
     void                    razer_set_mode_breathing_two_colors(unsigned char r1, unsigned char g1, unsigned char b1, unsigned char r2, unsigned char g2, unsigned char b2);
     void                    razer_set_mode_custom();
+    void                    SetLEDsHuntsmanV2Analog(RGBColor* colors);
     void                    razer_set_mode_none();
     void                    razer_set_mode_spectrum_cycle();
     void                    razer_set_mode_static(unsigned char red, unsigned char grn, unsigned char blu);
