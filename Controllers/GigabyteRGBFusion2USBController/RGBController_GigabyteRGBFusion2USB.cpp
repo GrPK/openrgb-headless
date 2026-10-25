@@ -1315,9 +1315,9 @@ void RGBController_RGBFusion2USB::SetupZones()
     controller->SetStripBuiltinEffectState(-1, false);
 
     /*-----------------------------------------------------*\
-    | Fixed LED10/LED11 zones are driven by effect packets  |
-    | (0x91/0x92), so keep built-in effects enabled on      |
-    | those onboard ARGB outputs                            |
+    | Fixed LED10/LED11 zones are driven by effect packets, |
+    | so keep built-in effects enabled on those onboard     |
+    | ARGB outputs                                          |
     \*-----------------------------------------------------*/
     for(std::size_t zone_idx = 0; zone_idx < zones.size(); zone_idx++)
     {
