@@ -580,8 +580,8 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
     }
 
     /*---------------------------------------------------------*\
-    | Once the card is in Direct mode, colour updates only need |
-    | the colour registers                                      |
+    | Once the card is in Direct mode, a colour update can skip |
+    | the unknown register and the brightness                   |
     \*---------------------------------------------------------*/
     direct_ready = (current_mode.value == MSI_GPU_V2_MODE_STATIC);
     direct_color = colors[0];
@@ -589,6 +589,19 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
 
 void RGBController_MSIGPUv2::UpdateDirectColor(RGBColor color)
 {
+    if(color == direct_color)
+    {
+        return;
+    }
+
+    /*---------------------------------------------------------*\
+    | Colour registers written while the card is in static mode |
+    | do not show (seen on an RTX 4090 Gaming X Slim), so the   |
+    | card goes to idle mode for the write and back to static   |
+    | mode after it                                             |
+    \*---------------------------------------------------------*/
+    controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_IDLE);
+
     if(RGBGetRValue(color) != RGBGetRValue(direct_color))
     {
         controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_R1, RGBGetRValue(color));
@@ -604,6 +617,8 @@ void RGBController_MSIGPUv2::UpdateDirectColor(RGBColor color)
         controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_B1, RGBGetBValue(color));
     }
 
+    controller->SetMode(MSI_GPU_V2_MODE_STATIC);
+
     direct_color = color;
 }
 
@@ -612,9 +627,11 @@ void RGBController_MSIGPUv2::DeviceUpdateLEDs()
     /*---------------------------------------------------------*\
     | The full sequence is seven register writes, each followed |
     | by a 20 ms wait, so a client streaming colours in Direct  |
-    | mode fell behind its effect. After the first update only  |
-    | the colour registers that changed are written; a mode or  |
-    | brightness change still goes through the full sequence    |
+    | mode fell behind its effect. After the first update, a    |
+    | colour change writes only idle mode, the colour registers |
+    | that changed and static mode again; an unchanged colour   |
+    | writes nothing. A mode or brightness change still goes    |
+    | through the full sequence                                 |
     \*---------------------------------------------------------*/
     if(direct_ready && (modes[active_mode].value == MSI_GPU_V2_MODE_STATIC))
     {
