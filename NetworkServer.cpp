@@ -169,6 +169,42 @@ static void WakeListenThread(NetworkServerControllerThread* thread)
     thread->start_cv.notify_all();
 }
 
+/*---------------------------------------------------------*\
+| Number of colors an UpdateLEDs packet sets, read from     |
+| after its data size field. 0 if the packet is too short.  |
+\*---------------------------------------------------------*/
+static unsigned short UpdateLEDsColorCount(const NetworkServerControllerThreadQueueEntry& entry)
+{
+    unsigned short num_colors = 0;
+
+    if((entry.data != NULL) && (entry.header.pkt_size >= (sizeof(unsigned int) + sizeof(num_colors))))
+    {
+        memcpy(&num_colors, entry.data + sizeof(unsigned int), sizeof(num_colors));
+    }
+
+    return(num_colors);
+}
+
+/*---------------------------------------------------------*\
+| An UpdateLEDs frame is stale when the next packet in this |
+| controller's queue is another UpdateLEDs setting at least |
+| as many colors, as writing it would only be overwritten.  |
+\*---------------------------------------------------------*/
+static bool UpdateLEDsSuperseded(NetworkServerControllerThread* thread, const NetworkServerControllerThreadQueueEntry& entry)
+{
+    std::lock_guard<std::mutex> queue_lock(thread->queue_mutex);
+
+    if(thread->queue.empty())
+    {
+        return(false);
+    }
+
+    const NetworkServerControllerThreadQueueEntry& next = thread->queue.front();
+
+    return((next.header.pkt_id == NET_PACKET_ID_RGBCONTROLLER_UPDATELEDS)
+        && (UpdateLEDsColorCount(next) >= UpdateLEDsColorCount(entry)));
+}
+
 static void RGBController_UpdateCallback(void* this_ptr, unsigned int update_reason, void* controller_ptr)
 {
     NetworkServer* this_obj = (NetworkServer*)this_ptr;
@@ -1155,7 +1191,36 @@ void NetworkServer::ControllerListenThread(NetworkServerControllerThread* this_t
                         break;
 
                     case NET_PACKET_ID_RGBCONTROLLER_UPDATELEDS:
-                        status = ProcessRequest_RGBController_UpdateLEDs(queue_entry.client_info, queue_entry.header.pkt_size, queue_entry.data, queue_entry.header.pkt_dev_id);
+                        {
+                            /*---------------------------------*\
+                            | A slow device (e.g. 150 ms per    |
+                            | color over I2C) can't keep up     |
+                            | with a client streaming frames,   |
+                            | and playing every queued frame    |
+                            | back makes it fall further behind |
+                            | the longer an effect runs. Wait   |
+                            | for the device to finish its      |
+                            | current write, then skip this     |
+                            | frame if a newer one arrived in   |
+                            | the meantime. The ack still goes  |
+                            | out below.                        |
+                            \*---------------------------------*/
+                            bool            controller_idx_valid;
+                            unsigned int    controller_idx = index_from_id_locked(queue_entry.header.pkt_dev_id, queue_entry.client_info->client_protocol_version, &controller_idx_valid);
+
+                            if(controller_idx_valid)
+                            {
+                                controllers[controller_idx]->AccessMutex.lock();
+                                controllers[controller_idx]->AccessMutex.unlock();
+                            }
+
+                            if(UpdateLEDsSuperseded(this_thread, queue_entry))
+                            {
+                                break;
+                            }
+
+                            status = ProcessRequest_RGBController_UpdateLEDs(queue_entry.client_info, queue_entry.header.pkt_size, queue_entry.data, queue_entry.header.pkt_dev_id);
+                        }
                         break;
 
                     case NET_PACKET_ID_RGBCONTROLLER_UPDATEZONELEDS:
