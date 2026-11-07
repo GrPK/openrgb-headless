@@ -279,9 +279,13 @@ void RGBController_MSIMotherboard761::DeviceConfigureZone(int zone_idx)
 
 void RGBController_MSIMotherboard761::DeviceUpdateLEDs()
 {
+    /*-----------------------------------------------------*\
+    | An effects-only zone holds one LED in leds/colors     |
+    | whatever its leds_count, so walk LEDsInZone()         |
+    \*-----------------------------------------------------*/
     for(std::size_t zone_idx = 0; zone_idx < zones.size(); ++zone_idx)
     {
-        for(int led_idx = zones[zone_idx].leds_count - 1; led_idx >= 0; led_idx--)
+        for(int led_idx = (int)LEDsInZone((unsigned int)zone_idx) - 1; led_idx >= 0; led_idx--)
         {
             UpdateLed((int)zone_idx, led_idx);
         }
@@ -291,7 +295,7 @@ void RGBController_MSIMotherboard761::DeviceUpdateLEDs()
 
 void RGBController_MSIMotherboard761::DeviceUpdateZoneLEDs(int zone)
 {
-    for(int led_idx = zones[zone].leds_count - 1; led_idx >= 0; led_idx--)
+    for(int led_idx = (int)LEDsInZone((unsigned int)zone) - 1; led_idx >= 0; led_idx--)
     {
         UpdateLed(zone, led_idx);
     }
