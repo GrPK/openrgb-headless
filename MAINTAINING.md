@@ -263,6 +263,27 @@ in favor of theirs.
 
 **Upstream PR candidate:** Yes, once confirmed on hardware.
 
+### RGBController.cpp - device call thread waits on a condition variable
+
+**What we changed:** `DeviceCallThreadFunction()` waits on `DeviceCallCV`
+(predicate: a call flag set, or `DeviceThreadRunning` cleared) instead of
+`sleep_for(1ms)`. Every flag setter (`UpdateLEDs`, `UpdateMode`,
+`UpdateLEDsInternal`) and both `DeviceThreadRunning = false` sites call
+`WakeDeviceCallThread()`, which takes `DeviceCallMutex` before notifying. The
+flag checks, flag-clear positions, mutexes and `DeviceUpdate*` calls are
+unchanged.
+
+**Why:** each controller thread woke on every 1 ms tick while idle (690-870/s
+per thread measured on a HYTE Y70).
+The wait also dispatches a queued update immediately instead of on the next
+1 ms tick.
+
+**Conflict resolution:** a new site that sets `CallFlag_*` or clears
+`DeviceThreadRunning` must call `WakeDeviceCallThread()`, or the update waits
+for the next unrelated wakeup and `join()` in `Shutdown()` hangs.
+
+**Upstream PR candidate:** Yes.
+
 ## Verifying after a merge
 
 The CI workflow at `.github/workflows/headless.yml` builds Windows, Linux,
