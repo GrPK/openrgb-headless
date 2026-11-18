@@ -260,9 +260,9 @@ void RGBController_PolychromeUSB::SetupZones()
         {
             zones[channel_idx].name                     = polychrome_USB_zone_names[device_info.zone_type];
             zones[channel_idx].type                     = ZONE_TYPE_LINEAR;
-            zones[channel_idx].leds_min                 = device_info.num_leds;
-            zones[channel_idx].leds_max                 = device_info.num_leds;
-            zones[channel_idx].leds_count               = device_info.num_leds;
+            zones[channel_idx].leds_min                 = device_info.exposed_leds;
+            zones[channel_idx].leds_max                 = device_info.exposed_leds;
+            zones[channel_idx].leds_count               = device_info.exposed_leds;
         }
 
         for(unsigned int led_ch_idx = 0; led_ch_idx < zones[channel_idx].leds_count; led_ch_idx++)

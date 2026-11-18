@@ -93,6 +93,8 @@ struct PolychromeDeviceInfo
 {
     unsigned char           effect_channel;
     unsigned char           num_leds;
+    unsigned char           exposed_leds;
+    unsigned char           zeroed_slot;
 	unsigned char			zone_type;
     bool        			rgswap;
     PolychromeDeviceType    device_type;
@@ -159,8 +161,9 @@ private:
     std::string   device_name;
     unsigned char configtable[12];
     bool          rgswapconfig[8] = { 0 };
+    bool          layout_logged   = false;
 
-    void SetDeviceInfo();
+    void SetDeviceInfo(bool nova_quirk);
     void ReadConfigTables();
     void Commit();
 };

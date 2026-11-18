@@ -10,6 +10,8 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include "ASRockPolychromeUSBController.h"
 #include "dmiinfo.h"
@@ -48,7 +50,11 @@ PolychromeUSBController::PolychromeUSBController(hid_device* dev_handle, const c
     device_name = "ASRock " + dmi.getMainboard();
     location    = path;
 
-    SetDeviceInfo();
+    std::string board = dmi.getMainboard();
+    std::transform(board.begin(), board.end(), board.begin(), [](unsigned char c){ return (char)std::tolower(c); });
+    bool nova_quirk = board.find("x870e nova") != std::string::npos;
+
+    SetDeviceInfo(nova_quirk);
 }
 
 PolychromeUSBController::~PolychromeUSBController()
@@ -84,11 +90,17 @@ std::string PolychromeUSBController::GetSerialString()
     return(StringUtils::wstring_to_string(serial_string));
 }
 
-void PolychromeUSBController::SetDeviceInfo()
+void PolychromeUSBController::SetDeviceInfo(bool nova_quirk)
 {
     PolychromeDeviceInfo newdev_info;
+    bool                 pcb_quirk_applied  = false;
+    int                  pcb_firmware_count = -1;
 
     ReadConfigTables();
+
+    LOG_WARNING("[ASRock Polychrome USB] board '%s', LEDCOUNT table %u %u %u %u %u %u %u %u, availability 0x%02X, RGSwap 0x%02X",
+                device_name.c_str(), configtable[0], configtable[1], configtable[2], configtable[3],
+                configtable[4], configtable[5], configtable[6], configtable[7], configtable[9], configtable[8]);
 
     /*--------------------------------------------------*\
     | Read settings to check for configured RGSwap       |
@@ -156,7 +168,9 @@ void PolychromeUSBController::SetDeviceInfo()
             LOG_WARNING("[ASRock Polychrome USB] %s: hardware RGSwap set, not used for channel order (setting is off)", polychrome_USB_zone_names[zonecnt]);
         }
 
-        newdev_info.num_leds = configtable[zonecnt];
+        newdev_info.num_leds     = configtable[zonecnt];
+        newdev_info.exposed_leds = configtable[zonecnt];
+        newdev_info.zeroed_slot  = 0;
         newdev_info.rgswap = rgswapconfig[zonecnt] || (onboard && hw_rgswap);
 
         if(newdev_info.rgswap)
@@ -205,7 +219,36 @@ void PolychromeUSBController::SetDeviceInfo()
                 break;
         }
 
+        /*-----------------------------------------------------------------*\
+        | X870E Nova: one PCB stream slot drives no LED, so clients see one |
+        | fewer and that slot is sent black. Counts written to the device   |
+        | stay as the firmware reports them.                                |
+        \*-----------------------------------------------------------------*/
+        if(nova_quirk && zonecnt == POLYCHROME_USB_ZONE_PCB && configtable[zonecnt] == 10)
+        {
+            newdev_info.exposed_leds = 9;
+            newdev_info.zeroed_slot  = 5;
+            pcb_quirk_applied        = true;
+        }
+
+        if(nova_quirk && zonecnt == POLYCHROME_USB_ZONE_PCB)
+        {
+            pcb_firmware_count = configtable[zonecnt];
+        }
+
         device_info.push_back(newdev_info);
+    }
+
+    if(nova_quirk)
+    {
+        if(pcb_quirk_applied)
+        {
+            LOG_WARNING("[ASRock Polychrome USB] quirk X870E Nova: PCB exposed 9 (sent 10, slot 5 zeroed)");
+        }
+        else
+        {
+            LOG_WARNING("[ASRock Polychrome USB] quirk X870E Nova: PCB quirk skipped, firmware PCB count %d (needs 10) or PCB zone not available", (int)pcb_firmware_count);
+        }
     }
 
     LOG_WARNING("[ASRock Polychrome USB] %s: RGSwap register 0x%02X, available zones 0x%02X, rgswap: %s", device_name.c_str(), configtable[8], available_mask, rgswap_log.c_str());
@@ -227,6 +270,18 @@ void PolychromeUSBController::SetZoneSize(int zone, int new_size)
         return;
     }
 
+    /*-----------------------------------------------------*\
+    | The device keeps the firmware count for quirked zones |
+    | whose exposed count is smaller, never write that one. |
+    \*-----------------------------------------------------*/
+    for(std::size_t idx = 0; idx < device_info.size(); idx++)
+    {
+        if(device_info[idx].zone_type == zone && device_info[idx].exposed_leds != device_info[idx].num_leds)
+        {
+            return;
+        }
+    }
+
     memset(zonecfg, POLYCHROME_USB_ZONE_UNAVAILABLE, POLYCHROME_USB_ZONE_MAX_NUM);
 
     configtable[zone] = new_size;
@@ -239,7 +294,8 @@ void PolychromeUSBController::SetZoneSize(int zone, int new_size)
     {
         if(device_info[idx].zone_type == zone)
         {
-            device_info[idx].num_leds = (unsigned char)new_size;
+            device_info[idx].num_leds     = (unsigned char)new_size;
+            device_info[idx].exposed_leds = (unsigned char)new_size;
         }
     }
 
@@ -312,11 +368,24 @@ void PolychromeUSBController::WriteAllZones
 {
     std::vector<unsigned char> combined_leds_rgb;
     std::size_t max_led_count = 0;
-    for(std::size_t zone_idx = 0; zone_idx < zones.size(); zone_idx++){
+    std::string layout_log;
+
+    for(std::size_t zone_idx = 0; zone_idx < zones.size(); zone_idx++)
+    {
         PolychromeDeviceInfo device_info = GetPolychromeDevices()[zone_idx];
+
+        if(!layout_logged)
+        {
+            layout_log += std::string(" ") + polychrome_USB_zone_names[device_info.zone_type] + "=" + std::to_string(combined_leds_rgb.size() / 3);
+        }
 
         for(std::size_t led_idx = 0; led_idx < zones[zone_idx].leds_count; led_idx++)
         {
+            if(device_info.zeroed_slot != 0 && led_idx == (std::size_t)(device_info.zeroed_slot - 1))
+            {
+                combined_leds_rgb.insert(combined_leds_rgb.end(), 3, 0);
+            }
+
             if(device_info.rgswap)
             {
                 combined_leds_rgb.push_back(RGBGetRValue(zones[zone_idx].colors[led_idx]));
@@ -329,9 +398,33 @@ void PolychromeUSBController::WriteAllZones
             }
             combined_leds_rgb.push_back(RGBGetBValue(zones[zone_idx].colors[led_idx]));
         }
+
+        /*-----------------------------------------------------*\
+        | A zeroed slot at the end of the zone has no user LED  |
+        | after it to trigger the insert above.                 |
+        \*-----------------------------------------------------*/
+        if(device_info.zeroed_slot != 0 && zones[zone_idx].leds_count < device_info.zeroed_slot)
+        {
+            combined_leds_rgb.insert(combined_leds_rgb.end(), 3, 0);
+        }
+
         max_led_count += zones[zone_idx].leds_max;
+        if(device_info.exposed_leds < device_info.num_leds)
+        {
+            max_led_count += device_info.num_leds - device_info.exposed_leds;
+        }
     }
+
     combined_leds_rgb.resize((max_led_count + 8) * 3, 0);
+
+    if(!layout_logged)
+    {
+        std::size_t total_bytes = combined_leds_rgb.size();
+        std::size_t packets     = (total_bytes <= 54) ? 1 : 1 + (total_bytes - 54 + 56) / 57;
+
+        LOG_WARNING("[ASRock Polychrome USB] stream start index per zone:%s, %u packets per frame", layout_log.c_str(), (unsigned int)packets);
+        layout_logged = true;
+    }
 
     unsigned char usb_buf[65];
     /*-----------------------------------------------------*\
