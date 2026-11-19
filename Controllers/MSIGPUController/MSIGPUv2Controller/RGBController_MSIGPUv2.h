@@ -40,6 +40,7 @@ private:
     MSIGPUv2Controller* controller;
     bool                rainbow_variants;
     bool                per_led_protocol    = false;
+    unsigned int        per_led_count       = MSI_GPU_V2_PER_LED_SLOTS;
     bool                rtx50               = false;
     std::atomic<bool>   stream_exit_pending{true};
     int                 stream_exit_failures = 0;

@@ -289,10 +289,23 @@ RGBController_MSIGPUv2::RGBController_MSIGPUv2(MSIGPUv2Controller * controller_p
     modes.push_back(doubleflashing);
 
     /*---------------------------------------------------------*\
-    | The RTX 5090 Gaming Trio takes Direct colors through a    |
-    | per-LED block, not the R1/G1/B1 registers                 |
+    | The RTX 5090 and 5070 Ti Gaming Trio take Direct colors   |
+    | through a per-LED block, not the R1/G1/B1 registers. The  |
+    | 5070 Ti subsystem id is shared with the 5080 Trio, so the |
+    | full PCI id is compared. The 5070 Ti block keeps six      |
+    | records but its last slot drives no LED, so it is sent    |
+    | black and not exposed                                     |
     \*---------------------------------------------------------*/
-    per_led_protocol = (msi_gpu_id == ((NVIDIA_RTX5090_DEV << 16) | MSI_RTX5090_GAMING_TRIO_SUB_DEV));
+    if(msi_gpu_id == ((NVIDIA_RTX5090_DEV << 16) | MSI_RTX5090_GAMING_TRIO_SUB_DEV))
+    {
+        per_led_protocol    = true;
+        per_led_count       = MSI_GPU_V2_PER_LED_SLOTS;
+    }
+    else if(msi_gpu_id == ((NVIDIA_RTX5070TI_DEV << 16) | MSI_RTX5070TI_GAMING_TRIO_SUB_DEV))
+    {
+        per_led_protocol    = true;
+        per_led_count       = 5;
+    }
 
     if(per_led_protocol)
     {
@@ -444,12 +457,12 @@ void RGBController_MSIGPUv2::SetupZones()
         | The per-LED block addresses each LED of the card      |
         \*-----------------------------------------------------*/
         msi_gpu_zone.type       = ZONE_TYPE_LINEAR;
-        msi_gpu_zone.leds_min   = MSI_GPU_V2_PER_LED_SLOTS;
-        msi_gpu_zone.leds_max   = MSI_GPU_V2_PER_LED_SLOTS;
-        msi_gpu_zone.leds_count = MSI_GPU_V2_PER_LED_SLOTS;
+        msi_gpu_zone.leds_min   = per_led_count;
+        msi_gpu_zone.leds_max   = per_led_count;
+        msi_gpu_zone.leds_count = per_led_count;
         zones.push_back(msi_gpu_zone);
 
-        for(unsigned int led_idx = 0; led_idx < MSI_GPU_V2_PER_LED_SLOTS; led_idx++)
+        for(unsigned int led_idx = 0; led_idx < per_led_count; led_idx++)
         {
             led new_led;
             new_led.name = "LED " + std::to_string(led_idx + 1);
@@ -716,7 +729,7 @@ void RGBController_MSIGPUv2::QueueDirect(bool reprime)
         std::lock_guard<std::mutex> lock(direct_mutex);
         for(unsigned int led_idx = 0; led_idx < MSI_GPU_V2_PER_LED_SLOTS; led_idx++)
         {
-            pending_colors[led_idx] = colors[(led_idx < colors.size()) ? led_idx : 0];
+            pending_colors[led_idx] = (led_idx < per_led_count && led_idx < colors.size()) ? colors[led_idx] : 0;
         }
         pending_brightness  = (unsigned char)(MSI_GPU_V2_BRIGHTNESS_MULTI * modes[active_mode].brightness);
         direct_pending      = true;
