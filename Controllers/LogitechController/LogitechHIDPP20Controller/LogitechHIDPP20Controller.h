@@ -196,7 +196,7 @@ enum HIDPP20DeviceQuirks : uint32_t
     HIDPP20_QUIRK_FADE_ACCEPTS_WRITES = (1 << 0),  // firmware accepts host frames during sleep fade without waking
     HIDPP20_QUIRK_8080_OVERREPORTS_MEDIA = (1 << 2),  // 0x8080 typeFlags over-reports media bit 0x02 (G910)
     HIDPP20_QUIRK_8080_KEYTYPE40_ID12_ONLY = (1 << 3),  // 0x8080 keyType 0x40 accepts only keyId 1 and 2 (G410)
-    HIDPP20_QUIRK_KEEP_ONBOARD_MODE   = (1 << 4),  // host mode breaks the onboard-profile-mapped F-row (G915 TKL)
+    HIDPP20_QUIRK_KEEP_ONBOARD_MODE   = (1 << 4),  // host mode drops onboard-profile-mapped buttons (G915 TKL F-row, G502 X PLUS forward)
 };
 
 struct HIDPP20DeviceQuirkEntry
@@ -219,6 +219,7 @@ static constexpr HIDPP20DeviceQuirkEntry HIDPP20_DEVICE_QUIRK_TABLE[] =
     { 0xC32B, 0xC32B, HIDPP20_QUIRK_8080_OVERREPORTS_MEDIA },  // G910 Orion Spark
     { 0xC330, 0xC330, HIDPP20_QUIRK_8080_KEYTYPE40_ID12_ONLY },  // G410 Atlas Spectrum
     { 0x408E, 0xC343, HIDPP20_QUIRK_KEEP_ONBOARD_MODE },  // G915 TKL
+    { 0x4099, 0xC095, HIDPP20_QUIRK_KEEP_ONBOARD_MODE },  // G502 X PLUS
 };
 
 /*---------------------------------------------------------*\
