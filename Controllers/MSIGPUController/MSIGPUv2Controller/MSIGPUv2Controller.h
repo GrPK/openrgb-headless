@@ -26,6 +26,7 @@ typedef unsigned char msi_gpu_dev_id;
 #define MSI_GPU_V2_DIRECT_REFRESH_MS        30000
 #define MSI_GPU_V2_WRITE_FAILURES_LOGGED    20
 #define MSI_GPU_V2_PER_LED_SLOTS            6
+#define MSI_GPU_V2_5070TI_PER_LED_COUNT     5
 
 enum
 {
