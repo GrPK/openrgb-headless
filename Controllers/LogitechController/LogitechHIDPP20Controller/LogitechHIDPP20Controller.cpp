@@ -4130,9 +4130,10 @@ bool LogitechHIDPP20Controller::ClaimSWControlIfNeeded()
     WritePowerConfig(idle_timeout_s, sleep_timeout_s);
 
     /*-----------------------------------------------------*\
-    | KEEP_ONBOARD_MODE (G915 TKL): host mode breaks the    |
-    | F-row (onboard-profile-mapped G-keys); per-key        |
-    | works onboard.                                        |
+    | KEEP_ONBOARD_MODE: host mode drops the buttons the    |
+    | onboard profile maps (G915 TKL F-row G-keys, G502 X   |
+    | PLUS forward button); lighting and per-key work       |
+    | onboard.                                              |
     \*-----------------------------------------------------*/
     if(caps.quirks & HIDPP20_QUIRK_KEEP_ONBOARD_MODE)
     {
