@@ -114,6 +114,38 @@ void RGBController_RGBFusion2DRAM::SetupZones()
 void RGBController_RGBFusion2DRAM::DeviceUpdateLEDs()
 {
     /*---------------------------------------------------------*\
+    | Direct is emulated with Pulse mode, one LED per write,    |
+    | which never reaches the Off or Static registers. When a   |
+    | Direct frame is one color, write it once through Off or   |
+    | Static with the full LED mask instead, so a black frame   |
+    | really turns the DIMMs off and a steady color is held by  |
+    | the mode the hardware implements.                         |
+    \*---------------------------------------------------------*/
+    if(modes[active_mode].value == RGB_FUSION_2_DRAM_MODE_DIRECT && !colors.empty())
+    {
+        bool uniform = true;
+
+        for(unsigned int led_idx = 1; led_idx < colors.size(); led_idx++)
+        {
+            if(colors[led_idx] != colors[0])
+            {
+                uniform = false;
+                break;
+            }
+        }
+
+        if(uniform)
+        {
+            RGBColor      color         = colors[0];
+            int           mode          = (color == 0) ? RGB_FUSION_2_DRAM_MODE_OFF : RGB_FUSION_2_DRAM_MODE_STATIC;
+
+            controller->SetLEDEffect(0, mode, modes[active_mode].brightness, modes[active_mode].speed,
+                                     RGBGetRValue(color), RGBGetGValue(color), RGBGetBValue(color));
+            return;
+        }
+    }
+
+    /*---------------------------------------------------------*\
     | Loop through all LEDs and set effect parameters. Must     |
     | apply after every effect set                              |
     \*---------------------------------------------------------*/
