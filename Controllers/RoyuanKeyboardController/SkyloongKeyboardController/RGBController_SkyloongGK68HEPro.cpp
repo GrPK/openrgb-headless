@@ -9,12 +9,14 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <algorithm>
+#include <cstdlib>
 #include "RGBControllerKeyNames.h"
 #include "RGBController_SkyloongGK68HEPro.h"
 
 #define NA 0xFFFFFFFF
 
-static unsigned int matrix_map[5][16] =
+static const unsigned int matrix_map[5][16] =
 {
     { 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, NA, NA},
     {14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, NA, 28},
@@ -32,7 +34,7 @@ static const unsigned char led_slots[GK68HE_PRO_LED_COUNT] =
      4, 10, 16, 40, 58, 64, 70, 76, 82, 88
 };
 
-static const char* led_names[GK68HE_PRO_LED_COUNT] =
+static const char* const led_names[GK68HE_PRO_LED_COUNT] =
 {
     KEY_EN_ESCAPE,          KEY_EN_1,           KEY_EN_2,           KEY_EN_3,           KEY_EN_4,
     KEY_EN_5,               KEY_EN_6,           KEY_EN_7,           KEY_EN_8,           KEY_EN_9,
@@ -50,6 +52,20 @@ static const char* led_names[GK68HE_PRO_LED_COUNT] =
     KEY_EN_RIGHT_FUNCTION,  KEY_EN_RIGHT_CONTROL,KEY_EN_LEFT_ARROW, KEY_EN_DOWN_ARROW,  KEY_EN_RIGHT_ARROW
 };
 
+const GK68HEProLayout gk68he_pro_layout =
+{
+    "Skyloong GK68HE Pro",
+    "Skyloong",
+    "Skyloong GK68HE Pro lighting controller",
+    GK68HE_PRO_LED_COUNT,
+    5,
+    16,
+    &matrix_map[0][0],
+    led_slots,
+    led_names,
+    false
+};
+
 /**------------------------------------------------------------------*\
     @name Skyloong GK68HE Pro
     @category Keyboard
@@ -63,14 +79,15 @@ static const char* led_names[GK68HE_PRO_LED_COUNT] =
         keyboards using USB ID 3151:5029.
 \*-------------------------------------------------------------------*/
 
-RGBController_SkyloongGK68HEPro::RGBController_SkyloongGK68HEPro(RoyuanKeyboardController* controller_ptr)
+RGBController_SkyloongGK68HEPro::RGBController_SkyloongGK68HEPro(RoyuanKeyboardController* controller_ptr, const GK68HEProLayout* layout_ptr)
 {
     controller                              = controller_ptr;
+    layout                                  = layout_ptr;
 
-    name                                    = "Skyloong GK68HE Pro";
-    vendor                                  = "Skyloong";
+    name                                    = layout->name;
+    vendor                                  = layout->vendor;
     type                                    = DEVICE_TYPE_KEYBOARD;
-    description                             = "Skyloong GK68HE Pro lighting controller";
+    description                             = layout->description;
     serial                                  = controller->GetSerial();
     location                                = controller->GetLocation();
 
@@ -480,7 +497,7 @@ RGBController_SkyloongGK68HEPro::RGBController_SkyloongGK68HEPro(RoyuanKeyboardC
 
     SetupZones();
 
-    for(unsigned int led_index = 0; led_index < GK68HE_PRO_LED_COUNT; led_index++)
+    for(unsigned int led_index = 0; led_index < layout->led_count; led_index++)
     {
         colors[led_index] = seed_color;
 
@@ -496,6 +513,17 @@ RGBController_SkyloongGK68HEPro::~RGBController_SkyloongGK68HEPro()
 {
     Shutdown();
 
+    {
+        std::lock_guard<std::mutex> lock(side_light_mutex);
+        side_light_running = false;
+        side_light_cv.notify_all();
+    }
+
+    if(side_light_thread.joinable())
+    {
+        side_light_thread.join();
+    }
+
     delete controller;
 }
 
@@ -504,21 +532,158 @@ void RGBController_SkyloongGK68HEPro::SetupZones()
     zone keyboard_zone;
     keyboard_zone.name              = "Keyboard";
     keyboard_zone.type              = ZONE_TYPE_MATRIX;
-    keyboard_zone.leds_min          = GK68HE_PRO_LED_COUNT;
-    keyboard_zone.leds_max          = GK68HE_PRO_LED_COUNT;
-    keyboard_zone.leds_count        = GK68HE_PRO_LED_COUNT;
-    keyboard_zone.matrix_map.Set(5, 16, (unsigned int*)&matrix_map);
+    keyboard_zone.leds_min          = layout->led_count;
+    keyboard_zone.leds_max          = layout->led_count;
+    keyboard_zone.leds_count        = layout->led_count;
+    keyboard_zone.matrix_map.Set(layout->matrix_rows, layout->matrix_cols, (unsigned int*)layout->matrix);
     zones.push_back(keyboard_zone);
 
-    for(unsigned int led_index = 0; led_index < GK68HE_PRO_LED_COUNT; led_index++)
+    for(unsigned int led_index = 0; led_index < layout->led_count; led_index++)
     {
         led keyboard_led;
-        keyboard_led.name           = led_names[led_index];
-        keyboard_led.value          = led_slots[led_index];
+        keyboard_led.name           = layout->led_names[led_index];
+        keyboard_led.value          = layout->slots[led_index];
         leds.push_back(keyboard_led);
     }
 
     SetupColors();
+}
+
+/*---------------------------------------------------------*\
+| The front light strip has no per-LED addressing, so in    |
+| Direct mode it mirrors the key color. A worker sends the  |
+| latest color at a capped rate, so the final color always  |
+| lands once changes stop.                                  |
+\*---------------------------------------------------------*/
+void RGBController_SkyloongGK68HEPro::UpdateSideLight(RGBColor side_color)
+{
+    if(!layout->has_side_light)
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(side_light_mutex);
+
+    if(!side_light_running)
+    {
+        side_light_running = true;
+        side_light_thread  = std::thread(&RGBController_SkyloongGK68HEPro::SideLightThread, this);
+    }
+
+    side_light_active = true;
+
+    if(!side_light_dirty || side_light_pending != side_color)
+    {
+        side_light_pending = side_color;
+        side_light_dirty   = true;
+        side_light_cv.notify_all();
+    }
+}
+
+void RGBController_SkyloongGK68HEPro::StopSideLight()
+{
+    if(!layout->has_side_light)
+    {
+        return;
+    }
+
+    /*---------------------------------------------------------*\
+    | Outside Direct mode the worker must not write, or a late  |
+    | strip report could land inside a SET_USERPIC upload.      |
+    \*---------------------------------------------------------*/
+    std::lock_guard<std::mutex> lock(side_light_mutex);
+
+    side_light_active = false;
+    side_light_dirty  = false;
+}
+
+void RGBController_SkyloongGK68HEPro::SideLightThread()
+{
+    /*-----------------------------------------------------*\
+    | Every strip write restarts its effect and shows as a  |
+    | blink, so writes are few: a capped rate, a deadband   |
+    | on small color moves, and one exact write once the    |
+    | color settles. A device that stops answering ends the |
+    | writes.                                               |
+    \*-----------------------------------------------------*/
+    const std::chrono::milliseconds min_interval(250);
+    const std::chrono::milliseconds settle_time(300);
+    const int                       deadband          = 12;
+    const unsigned int              max_failures      = 3;
+
+    bool         have_sent = false;
+    RGBColor     last_sent = 0;
+    unsigned int failures  = 0;
+
+    std::unique_lock<std::mutex> lock(side_light_mutex);
+
+    while(side_light_running)
+    {
+        if(!side_light_dirty)
+        {
+            side_light_cv.wait(lock, [this]{ return(side_light_dirty || !side_light_running); });
+            continue;
+        }
+
+        RGBColor color   = side_light_pending;
+        side_light_dirty = false;
+
+        int delta = 0;
+
+        if(have_sent)
+        {
+            delta = std::max({ std::abs((int)RGBGetRValue(color) - (int)RGBGetRValue(last_sent)),
+                               std::abs((int)RGBGetGValue(color) - (int)RGBGetGValue(last_sent)),
+                               std::abs((int)RGBGetBValue(color) - (int)RGBGetBValue(last_sent)) });
+
+            if(delta == 0)
+            {
+                continue;
+            }
+
+            if(delta < deadband)
+            {
+                /*-----------------------------------------*\
+                | Small move: only apply it once the color   |
+                | has stopped changing for the settle time.  |
+                \*-----------------------------------------*/
+                if(side_light_cv.wait_for(lock, settle_time, [this]{ return(side_light_dirty || !side_light_running); }))
+                {
+                    continue;
+                }
+
+                color = side_light_pending;
+            }
+        }
+
+        if(!side_light_active)
+        {
+            continue;
+        }
+
+        lock.unlock();
+
+        bool ok = controller->SetSideLight(RGBGetRValue(color), RGBGetGValue(color), RGBGetBValue(color));
+
+        lock.lock();
+
+        if(ok)
+        {
+            last_sent = color;
+            have_sent = true;
+            failures  = 0;
+        }
+        else if(++failures >= max_failures)
+        {
+            break;
+        }
+        else
+        {
+            side_light_dirty = true;
+        }
+
+        side_light_cv.wait_for(lock, min_interval, [this]{ return(!side_light_running); });
+    }
 }
 
 void RGBController_SkyloongGK68HEPro::DeviceUpdateLEDs()
@@ -529,7 +694,7 @@ void RGBController_SkyloongGK68HEPro::DeviceUpdateLEDs()
         {
             SendCustomLayer();
 
-            for(unsigned int led_index = 0; led_index < GK68HE_PRO_LED_COUNT; led_index++)
+            for(unsigned int led_index = 0; led_index < layout->led_count; led_index++)
             {
                 flashed_colors[(led_index * 3) + 0] = RGBGetRValue(colors[led_index]);
                 flashed_colors[(led_index * 3) + 1] = RGBGetGValue(colors[led_index]);
@@ -547,6 +712,11 @@ void RGBController_SkyloongGK68HEPro::DeviceUpdateLEDs()
     unsigned char blu = RGBGetBValue(colors[0]);
 
     controller->SetColor(red, grn, blu);
+
+    if(modes[active_mode].value == ROYUAN_SKYLOONG_GK68HE_PRO_EFFECT_DIRECT)
+    {
+        UpdateSideLight(colors[0]);
+    }
 }
 
 void RGBController_SkyloongGK68HEPro::UpdateZoneLEDs(int /*zone*/)
@@ -562,6 +732,11 @@ void RGBController_SkyloongGK68HEPro::UpdateSingleLED(int /*led*/)
 void RGBController_SkyloongGK68HEPro::DeviceUpdateMode()
 {
     unsigned char option = mode_options[active_mode];
+
+    if(modes[active_mode].value != ROYUAN_SKYLOONG_GK68HE_PRO_EFFECT_DIRECT)
+    {
+        StopSideLight();
+    }
 
     if(modes[active_mode].flags & (MODE_FLAG_HAS_DIRECTION_LR | MODE_FLAG_HAS_DIRECTION_UD))
     {
@@ -609,6 +784,11 @@ void RGBController_SkyloongGK68HEPro::DeviceUpdateMode()
     }
 
     controller->SetColor(RGBGetRValue(color), RGBGetGValue(color), RGBGetBValue(color));
+
+    if(modes[active_mode].value == ROYUAN_SKYLOONG_GK68HE_PRO_EFFECT_DIRECT)
+    {
+        UpdateSideLight(color);
+    }
 }
 
 bool RGBController_SkyloongGK68HEPro::LayerColorsChanged()
@@ -618,7 +798,7 @@ bool RGBController_SkyloongGK68HEPro::LayerColorsChanged()
         return true;
     }
 
-    for(unsigned int led_index = 0; led_index < GK68HE_PRO_LED_COUNT; led_index++)
+    for(unsigned int led_index = 0; led_index < layout->led_count; led_index++)
     {
         if(RGBGetRValue(colors[led_index]) != flashed_colors[(led_index * 3) + 0]
         || RGBGetGValue(colors[led_index]) != flashed_colors[(led_index * 3) + 1]
@@ -635,9 +815,9 @@ void RGBController_SkyloongGK68HEPro::SendCustomLayer()
 {
     unsigned char slot_colors[ROYUAN_SKYLOONG_GK68HE_PRO_USERPIC_SLOTS * 3] = { 0x00 };
 
-    for(unsigned int led_index = 0; led_index < GK68HE_PRO_LED_COUNT; led_index++)
+    for(unsigned int led_index = 0; led_index < layout->led_count; led_index++)
     {
-        unsigned int slot = led_slots[led_index];
+        unsigned int slot = layout->slots[led_index];
 
         slot_colors[(slot * 3) + 0] = RGBGetRValue(colors[led_index]);
         slot_colors[(slot * 3) + 1] = RGBGetGValue(colors[led_index]);

@@ -289,10 +289,23 @@ RGBController_MSIGPUv2::RGBController_MSIGPUv2(MSIGPUv2Controller * controller_p
     modes.push_back(doubleflashing);
 
     /*---------------------------------------------------------*\
-    | The RTX 5090 Gaming Trio takes Direct colors through a    |
-    | per-LED block, not the R1/G1/B1 registers                 |
+    | The RTX 5090 and 5070 Ti Gaming Trio take Direct colors   |
+    | through a per-LED block, not the R1/G1/B1 registers. The  |
+    | 5070 Ti subsystem id is shared with the 5080 Trio, so the |
+    | full PCI id is compared. The 5070 Ti block keeps the full |
+    | block but its last slot drives no LED, so it is sent      |
+    | black and not exposed                                     |
     \*---------------------------------------------------------*/
-    per_led_protocol = (msi_gpu_id == ((NVIDIA_RTX5090_DEV << 16) | MSI_RTX5090_GAMING_TRIO_SUB_DEV));
+    if(msi_gpu_id == ((NVIDIA_RTX5090_DEV << 16) | MSI_RTX5090_GAMING_TRIO_SUB_DEV))
+    {
+        per_led_protocol    = true;
+        per_led_count       = MSI_GPU_V2_PER_LED_SLOTS;
+    }
+    else if(msi_gpu_id == ((NVIDIA_RTX5070TI_DEV << 16) | MSI_RTX5070TI_GAMING_TRIO_SUB_DEV))
+    {
+        per_led_protocol    = true;
+        per_led_count       = MSI_GPU_V2_5070TI_PER_LED_COUNT;
+    }
 
     if(per_led_protocol)
     {
@@ -444,12 +457,12 @@ void RGBController_MSIGPUv2::SetupZones()
         | The per-LED block addresses each LED of the card      |
         \*-----------------------------------------------------*/
         msi_gpu_zone.type       = ZONE_TYPE_LINEAR;
-        msi_gpu_zone.leds_min   = MSI_GPU_V2_PER_LED_SLOTS;
-        msi_gpu_zone.leds_max   = MSI_GPU_V2_PER_LED_SLOTS;
-        msi_gpu_zone.leds_count = MSI_GPU_V2_PER_LED_SLOTS;
+        msi_gpu_zone.leds_min   = per_led_count;
+        msi_gpu_zone.leds_max   = per_led_count;
+        msi_gpu_zone.leds_count = per_led_count;
         zones.push_back(msi_gpu_zone);
 
-        for(unsigned int led_idx = 0; led_idx < MSI_GPU_V2_PER_LED_SLOTS; led_idx++)
+        for(unsigned int led_idx = 0; led_idx < per_led_count; led_idx++)
         {
             led new_led;
             new_led.name = "LED " + std::to_string(led_idx + 1);
@@ -684,8 +697,8 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool save
 
     /*---------------------------------------------------------*\
     | Log the written values against a readback once per        |
-    | controller; Direct mode reaches here on every frame,      |
-    | except on the per-LED path                                |
+    | controller; every mode or brightness change comes here,   |
+    | and on the register path the first Direct frame too       |
     \*---------------------------------------------------------*/
     if(!first_apply_logged.exchange(true))
     {
@@ -703,6 +716,53 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool save
 
         LOG_WARNING("[MSI GPU v2] %s (%s) first apply (%s): wrote mode 0x%02X brightness %s rgb %s, read back %s", name.c_str(), location.c_str(), current_mode.name.c_str(), written_mode, brightness_str, rgb_str, controller->ReadStateString().c_str());
     }
+
+    /*---------------------------------------------------------*\
+    | The card is now in static mode with this color, so the    |
+    | next Direct color can skip the unknown register and the   |
+    | brightness                                                |
+    \*---------------------------------------------------------*/
+    register_direct_ready = !per_led_protocol && (current_mode.value == MSI_GPU_V2_MODE_STATIC);
+    register_direct_color = colors.empty() ? 0 : colors[0];
+}
+
+/*---------------------------------------------------------*\
+| Register path Direct color change. Color registers        |
+| written while the card stays in static mode do not show   |
+| (seen on an RTX 4090 Gaming X Slim), so the card goes to  |
+| idle mode for the write and back to static mode after it. |
+| Only the channels that changed are written; an unchanged  |
+| color writes nothing. A failed write sends the next frame |
+| through the full sequence again                           |
+\*---------------------------------------------------------*/
+void RGBController_MSIGPUv2::UpdateRegisterDirectColor(RGBColor color)
+{
+    if(color == register_direct_color)
+    {
+        return;
+    }
+
+    bool ok = controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_IDLE);
+
+    if(RGBGetRValue(color) != RGBGetRValue(register_direct_color))
+    {
+        ok = controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_R1, RGBGetRValue(color)) && ok;
+    }
+
+    if(RGBGetGValue(color) != RGBGetGValue(register_direct_color))
+    {
+        ok = controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_G1, RGBGetGValue(color)) && ok;
+    }
+
+    if(RGBGetBValue(color) != RGBGetBValue(register_direct_color))
+    {
+        ok = controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_B1, RGBGetBValue(color)) && ok;
+    }
+
+    ok = controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_STATIC) && ok;
+
+    register_direct_color = color;
+    register_direct_ready = ok;
 }
 
 
@@ -716,7 +776,7 @@ void RGBController_MSIGPUv2::QueueDirect(bool reprime)
         std::lock_guard<std::mutex> lock(direct_mutex);
         for(unsigned int led_idx = 0; led_idx < MSI_GPU_V2_PER_LED_SLOTS; led_idx++)
         {
-            pending_colors[led_idx] = colors[(led_idx < colors.size()) ? led_idx : 0];
+            pending_colors[led_idx] = (led_idx < per_led_count && led_idx < colors.size()) ? colors[led_idx] : 0;
         }
         pending_brightness  = (unsigned char)(MSI_GPU_V2_BRIGHTNESS_MULTI * modes[active_mode].brightness);
         direct_pending      = true;
@@ -871,9 +931,20 @@ void RGBController_MSIGPUv2::DirectThreadFunction()
 
 void RGBController_MSIGPUv2::DeviceUpdateLEDs()
 {
+    /*---------------------------------------------------------*\
+    | The full register sequence is seven writes with a 20 ms   |
+    | wait after each, too slow for a client streaming colors.  |
+    | On the register path, after the first full update a       |
+    | Direct color change writes only idle mode, the color      |
+    | registers that changed and static mode again              |
+    \*---------------------------------------------------------*/
     if(per_led_protocol && modes[active_mode].value == MSI_GPU_V2_MODE_STATIC)
     {
         QueueDirect(false);
+    }
+    else if(register_direct_ready && modes[active_mode].value == MSI_GPU_V2_MODE_STATIC && !colors.empty())
+    {
+        UpdateRegisterDirectColor(colors[0]);
     }
     else
     {
