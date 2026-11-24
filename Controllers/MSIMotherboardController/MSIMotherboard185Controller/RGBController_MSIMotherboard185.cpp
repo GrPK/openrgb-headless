@@ -302,9 +302,13 @@ void RGBController_MSIMotherboard185::DeviceUpdateLEDs()
         controller->SetDirectMode(true);
     }
 
+    /*-----------------------------------------------------*\
+    | An effects-only zone holds one LED in leds/colors     |
+    | whatever its leds_count, so walk LEDsInZone()         |
+    \*-----------------------------------------------------*/
     for(std::size_t zone_idx = 0; zone_idx < zones.size(); ++zone_idx)
     {
-        for(int led_idx = zones[zone_idx].leds_count - 1; led_idx >= 0; led_idx--)
+        for(int led_idx = (int)LEDsInZone((unsigned int)zone_idx) - 1; led_idx >= 0; led_idx--)
         {
             UpdateLed((int)zone_idx, led_idx);
         }
@@ -319,7 +323,7 @@ void RGBController_MSIMotherboard185::DeviceUpdateZoneLEDs(int zone)
         controller->SetDirectMode(true);
     }
 
-    for(int led_idx = zones[zone].leds_count - 1; led_idx >= 0; led_idx--)
+    for(int led_idx = (int)LEDsInZone((unsigned int)zone) - 1; led_idx >= 0; led_idx--)
     {
         UpdateLed(zone, led_idx);
     }
