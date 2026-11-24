@@ -25,6 +25,7 @@
 #define ROYUAN_COMMAND_GET_LED_PARAMS                             0x87
 #define ROYUAN_COMMAND_SET_DIRECT_COLOR                           0x0E
 #define ROYUAN_COMMAND_SET_USERPIC                                0x0C
+#define ROYUAN_COMMAND_SET_SIDE_LED_PARAMS                        0x08
 
 #define ROYUAN_SKYLOONG_GK68HE_PRO_USERPIC_SLOTS                  128
 #define ROYUAN_SKYLOONG_GK68HE_PRO_USERPIC_FRAMES                 7
@@ -166,11 +167,13 @@ public:
     void                    SetMode(unsigned char mode, unsigned char speed, unsigned char brightness);
     void                    SetColor(unsigned char red, unsigned char green, unsigned char blue);
     bool                    SetUserPic(const unsigned char* slot_colors, unsigned char layer);
+    bool                    SetSideLight(unsigned char red, unsigned char green, unsigned char blue);
 
 private:
     std::string             device_name;
     std::string             location;
     hid_device*             dev;
+    std::mutex              feature_mutex;
     RoyuanKeyboardProfile   profile;
     bool                    valid;
 
