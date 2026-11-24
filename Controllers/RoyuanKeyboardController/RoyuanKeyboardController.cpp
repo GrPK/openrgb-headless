@@ -464,9 +464,8 @@ bool RoyuanKeyboardController::SetUserPic(const unsigned char* slot_colors, unsi
 
         buffer[8] = CalculateChecksum(&buffer[1], 7);
 
-        std::unique_lock<std::mutex> feature_lock(feature_mutex);
+        std::lock_guard<std::mutex> feature_lock(feature_mutex);
         int result = hid_send_feature_report(dev, buffer, sizeof(buffer));
-        feature_lock.unlock();
 
         if(result < 0)
         {
@@ -539,13 +538,14 @@ void RoyuanKeyboardController::WriteThread()
 
         std::unique_lock<std::mutex> feature_lock(feature_mutex);
         int result      = hid_send_feature_report(dev, buffer, sizeof(buffer));
-        feature_lock.unlock();
         next_transfer   = std::chrono::steady_clock::now() + std::chrono::milliseconds(ROYUAN_POST_SET_DELAY_MS);
 
         if(result < 0)
         {
             LOG_ERROR("[ROYUAN]: SET_LEDPARAM failed: %ls", hid_error(dev));
         }
+
+        feature_lock.unlock();
 
         lock.lock();
     }

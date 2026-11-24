@@ -570,12 +570,31 @@ void RGBController_SkyloongGK68HEPro::UpdateSideLight(RGBColor side_color)
         side_light_thread  = std::thread(&RGBController_SkyloongGK68HEPro::SideLightThread, this);
     }
 
+    side_light_active = true;
+
     if(!side_light_dirty || side_light_pending != side_color)
     {
         side_light_pending = side_color;
         side_light_dirty   = true;
         side_light_cv.notify_all();
     }
+}
+
+void RGBController_SkyloongGK68HEPro::StopSideLight()
+{
+    if(!layout->has_side_light)
+    {
+        return;
+    }
+
+    /*---------------------------------------------------------*\
+    | Outside Direct mode the worker must not write, or a late  |
+    | strip report could land inside a SET_USERPIC upload.      |
+    \*---------------------------------------------------------*/
+    std::lock_guard<std::mutex> lock(side_light_mutex);
+
+    side_light_active = false;
+    side_light_dirty  = false;
 }
 
 void RGBController_SkyloongGK68HEPro::SideLightThread()
@@ -635,6 +654,11 @@ void RGBController_SkyloongGK68HEPro::SideLightThread()
 
                 color = side_light_pending;
             }
+        }
+
+        if(!side_light_active)
+        {
+            continue;
         }
 
         lock.unlock();
@@ -709,6 +733,11 @@ void RGBController_SkyloongGK68HEPro::DeviceUpdateMode()
 {
     unsigned char option = mode_options[active_mode];
 
+    if(modes[active_mode].value != ROYUAN_SKYLOONG_GK68HE_PRO_EFFECT_DIRECT)
+    {
+        StopSideLight();
+    }
+
     if(modes[active_mode].flags & (MODE_FLAG_HAS_DIRECTION_LR | MODE_FLAG_HAS_DIRECTION_UD))
     {
         unsigned int direction = modes[active_mode].direction;
@@ -755,6 +784,11 @@ void RGBController_SkyloongGK68HEPro::DeviceUpdateMode()
     }
 
     controller->SetColor(RGBGetRValue(color), RGBGetGValue(color), RGBGetBValue(color));
+
+    if(modes[active_mode].value == ROYUAN_SKYLOONG_GK68HE_PRO_EFFECT_DIRECT)
+    {
+        UpdateSideLight(color);
+    }
 }
 
 bool RGBController_SkyloongGK68HEPro::LayerColorsChanged()

@@ -58,6 +58,7 @@ private:
     void SendCustomLayer();
     bool LayerColorsChanged();
     void UpdateSideLight(RGBColor side_color);
+    void StopSideLight();
     void SideLightThread();
 
     unsigned char flashed_colors[ROYUAN_SKYLOONG_GK68HE_PRO_USERPIC_SLOTS * 3];
@@ -69,6 +70,7 @@ private:
     RGBColor                side_light_pending = 0;
     bool                    side_light_dirty   = false;
     bool                    side_light_running = false;
+    bool                    side_light_active  = false;
 
     std::vector<unsigned char> mode_options;
 };
