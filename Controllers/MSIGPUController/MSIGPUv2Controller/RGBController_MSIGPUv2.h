@@ -47,6 +47,14 @@ private:
     std::atomic<bool>   first_apply_logged{false};
 
     /*-----------------------------------------------------*\
+    | Register path (cards without per-LED Direct): once a  |
+    | full update has put the card in static mode, a Direct |
+    | color change writes only the registers that changed   |
+    \*-----------------------------------------------------*/
+    bool                register_direct_ready   = false;
+    RGBColor            register_direct_color   = 0;
+
+    /*-----------------------------------------------------*\
     | Per-LED Direct frames go to a worker that writes the  |
     | latest one, at most once per minimum interval.        |
     | write_mutex serializes its bus writes with the mode   |
@@ -70,6 +78,7 @@ private:
     std::chrono::steady_clock::time_point   direct_write_time;
 
     void       DeviceUpdateAll(const mode& current_mode, bool save = false);
+    void       UpdateRegisterDirectColor(RGBColor color);
     void       QueueDirect(bool reprime);
     void       DirectThreadFunction();
 };
