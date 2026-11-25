@@ -34,9 +34,12 @@ static constexpr RGBColor HIDPP20_UNCOMMITTED = 0xFF000000;
 | the effect engine's 60 fps a 4-zone speaker was asked for |
 | 240 writes/s, answered ~94/s back to back and dropped off |
 | USB under that load. The sender takes at most one frame   |
-| per interval and sends only the zones that changed.       |
+| per interval and sends only the zones that changed. 50ms  |
+| matches the vendor app: its audio visualizer streams the  |
+| G560 at ~20 frames/s (80 writes/s, measured). The         |
+| zone_frame_interval_ms setting overrides it.              |
 \*---------------------------------------------------------*/
-static constexpr uint16_t HIDPP20_ZONE_FRAME_INTERVAL_MS = 100;
+static constexpr uint16_t HIDPP20_ZONE_FRAME_INTERVAL_MS = 50;
 
 /*---------------------------------------------------------*\
 | Effect period range, in milliseconds. Matches the         |
@@ -1384,9 +1387,13 @@ RGBController_LogitechHIDPP20::RGBController_LogitechHIDPP20(LogitechHIDPP20Cont
         /*-------------------------------------------------*\
         | Zone-effect devices ride it too, paced.           |
         \*-------------------------------------------------*/
+        LogitechHIDPP20IdleSettings::instance()->load();
+
+        int interval = LogitechHIDPP20IdleSettings::instance()->zoneFrameIntervalMs();
+
         controller->SetPerKeyFrameSender(
             std::bind(&RGBController_LogitechHIDPP20::SendZoneFrame, this, std::placeholders::_1),
-            HIDPP20_ZONE_FRAME_INTERVAL_MS);
+            (uint16_t)((interval > 0) ? interval : HIDPP20_ZONE_FRAME_INTERVAL_MS));
     }
 }
 
