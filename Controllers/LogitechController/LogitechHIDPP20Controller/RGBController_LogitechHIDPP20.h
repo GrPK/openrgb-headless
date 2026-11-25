@@ -54,6 +54,15 @@ private:
     void                        SendPerKeyFrame(std::vector<RGBColor>& snapshot);
 
     /*-----------------------------------------------------*\
+    | Zone-effect devices (G560, G810 family): the paced    |
+    | sender callback, the shared frame writer and the      |
+    | mode test both paths use.                             |
+    \*-----------------------------------------------------*/
+    void                        SendZoneFrame(std::vector<RGBColor>& snapshot);
+    void                        WriteZoneFrame(const std::vector<RGBColor>& frame);
+    bool                        IsZoneOnlyDirect(const HIDPP20DeviceCapabilities& caps) const;
+
+    /*-----------------------------------------------------*\
     | Build one matrix (map != nullptr) or linear           |
     | zone from a name + geometry + (led name, wire         |
     | value) list. Shared by the static-table layout        |

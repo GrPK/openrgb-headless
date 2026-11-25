@@ -29,6 +29,16 @@
 static constexpr RGBColor HIDPP20_UNCOMMITTED = 0xFF000000;
 
 /*---------------------------------------------------------*\
+| Zone-effect devices (G560, G810 family) take one acked    |
+| transaction per zone, ~10ms each on a G560. Streamed at   |
+| the effect engine's 60 fps a 4-zone speaker was asked for |
+| 240 writes/s, answered ~94/s back to back and dropped off |
+| USB under that load. The sender takes at most one frame   |
+| per interval and sends only the zones that changed.       |
+\*---------------------------------------------------------*/
+static constexpr uint16_t HIDPP20_ZONE_FRAME_INTERVAL_MS = 100;
+
+/*---------------------------------------------------------*\
 | Effect period range, in milliseconds. Matches the         |
 | 1000..20000ms range Logitech firmware tests against and   |
 | the vendor app clamps to in observed wire captures.       |
@@ -1369,6 +1379,15 @@ RGBController_LogitechHIDPP20::RGBController_LogitechHIDPP20(LogitechHIDPP20Cont
         controller->SetPerKeyFrameSender(
             std::bind(&RGBController_LogitechHIDPP20::SendPerKeyFrame, this, std::placeholders::_1));
     }
+    else if(controller->GetCapabilities().has_zone_effects && !PerKey8080Capable())
+    {
+        /*-------------------------------------------------*\
+        | Zone-effect devices ride it too, paced.           |
+        \*-------------------------------------------------*/
+        controller->SetPerKeyFrameSender(
+            std::bind(&RGBController_LogitechHIDPP20::SendZoneFrame, this, std::placeholders::_1),
+            HIDPP20_ZONE_FRAME_INTERVAL_MS);
+    }
 }
 
 /*---------------------------------------------------------*\
@@ -1400,6 +1419,19 @@ void RGBController_LogitechHIDPP20::OnRepaintRequest()
 
 RGBController_LogitechHIDPP20::~RGBController_LogitechHIDPP20()
 {
+    /*-----------------------------------------------------*\
+    | Unplugged (the reader has seen the handle die): flag  |
+    | teardown before the joins below, so a write still     |
+    | retrying against the gone device gives up at once     |
+    | instead of running its whole schedule. A device that  |
+    | is still there keeps the normal order, so the final   |
+    | Wake() in StopPowerManager still reaches it.          |
+    \*-----------------------------------------------------*/
+    if(!controller->IsOnline())
+    {
+        controller->BeginTeardown();
+    }
+
     controller->StopPowerManager();
 
     if(shutdown_callback)
@@ -2209,6 +2241,19 @@ void RGBController_LogitechHIDPP20::DeviceUpdateLEDs()
             controller->SubmitPerKeyFrame(colors);
             return;
         }
+
+        /*-------------------------------------------------*\
+        | Zone-effect devices (G560, G810 family) ride the  |
+        | same sender, paced: one acked transaction per     |
+        | zone made a 60 fps stream ask more than the       |
+        | firmware answers, held this thread on the wire    |
+        | and kept the device saturated.                    |
+        \*-------------------------------------------------*/
+        if(IsZoneOnlyDirect(caps_pre) && controller->HasPerKeyFrameSender())
+        {
+            controller->SubmitPerKeyFrame(colors);
+            return;
+        }
     }
 
     std::lock_guard<std::recursive_mutex> frame_guard(controller->TransactionMutex());
@@ -2438,64 +2483,141 @@ void RGBController_LogitechHIDPP20::DeviceUpdateLEDs()
 
     /*-----------------------------------------------------*\
     | Zone-effect devices without per-key (G560,            |
-    | G810 family): one LED per cluster. Re-issue           |
-    | the active effect on each changed zone with           |
-    | that LED's color; Direct rides Static.                |
+    | G810 family), sender thread not registered: write     |
+    | the frame inline.                                     |
     \*-----------------------------------------------------*/
-    if(caps.has_zone_effects && !caps.has_perkey && !PerKey8080Capable() &&
-       (unsigned int)active_mode < modes.size() &&
-       modes[active_mode].color_mode == MODE_COLORS_PER_LED)
+    if(IsZoneOnlyDirect(caps))
     {
-        const mode& current = modes[active_mode];
-
-        bool          full_update = (sent_colors.size() != colors.size());
-        bool          is_direct   = (current.name == "Direct");
-        uint16_t      period      = SpeedSliderToPeriodMs(current.speed);
-        unsigned char brightness  = (current.flags & MODE_FLAG_HAS_BRIGHTNESS)
-                                  ? (unsigned char)current.brightness
-                                  : 100;
-
-        for(size_t i = 0; i < caps.zone_clusters.size() && i < colors.size(); i++)
-        {
-            if(!full_update && sent_colors[i] == colors[i])
-            {
-                continue;
-            }
-
-            const HIDPP20ZoneCluster& cluster = caps.zone_clusters[i];
-
-            uint8_t  eff_idx = 0;
-            uint16_t eff_id  = 0;
-
-            for(size_t j = 0; j < cluster.effects.size(); j++)
-            {
-                bool match = is_direct ? (cluster.effects[j].effect_id == 0x0001)
-                                       : (cluster.effects[j].index == (uint8_t)current.value);
-
-                if(match)
-                {
-                    eff_idx = cluster.effects[j].index;
-                    eff_id  = cluster.effects[j].effect_id;
-                    break;
-                }
-            }
-
-            if(eff_id == 0)
-            {
-                continue;
-            }
-
-            controller->SetZoneEffect(cluster.index, eff_idx, eff_id,
-                                      RGBGetRValue(colors[i]),
-                                      RGBGetGValue(colors[i]),
-                                      RGBGetBValue(colors[i]),
-                                      period, brightness, 0, false);
-        }
-
-        sent_colors.assign(colors.begin(), colors.end());
-        controller->UpgradeSwControlAfterFirstPaint();
+        std::vector<RGBColor> snapshot(colors.begin(), colors.end());
+        WriteZoneFrame(snapshot);
         return;
     }
+}
+
+/*---------------------------------------------------------*\
+| Zone-effect device (no per-key layer) in a per-LED mode:  |
+| one LED per cluster, painted by re-issuing the active     |
+| effect on that zone.                                      |
+\*---------------------------------------------------------*/
+bool RGBController_LogitechHIDPP20::IsZoneOnlyDirect(const HIDPP20DeviceCapabilities& caps) const
+{
+    return caps.has_zone_effects && !caps.has_perkey && !PerKey8080Capable() &&
+           (unsigned int)active_mode < modes.size() &&
+           modes[active_mode].color_mode == MODE_COLORS_PER_LED;
+}
+
+/*---------------------------------------------------------*\
+| One zone frame, on the controller's sender thread. Paced  |
+| by the sender (HIDPP20_ZONE_FRAME_INTERVAL_MS), so frames |
+| the effect engine submits faster collapse into the newest.|
+\*---------------------------------------------------------*/
+void RGBController_LogitechHIDPP20::SendZoneFrame(std::vector<RGBColor>& snapshot)
+{
+    std::lock_guard<std::recursive_mutex> frame_guard(controller->TransactionMutex());
+
+    if(!controller->IsOnline() || controller->IsDeepSleep())
+    {
+        return;
+    }
+
+    const HIDPP20DeviceCapabilities& caps = controller->GetCapabilities();
+
+    if(controller->GetPowerState() == HIDPP20_POWER_SLEEPING
+       && !(caps.quirks & HIDPP20_QUIRK_FADE_ACCEPTS_WRITES))
+    {
+        return;
+    }
+
+    controller->ClaimSWControlIfNeeded();
+
+    if(!IsZoneOnlyDirect(caps))
+    {
+        return;
+    }
+
+    WriteZoneFrame(snapshot);
+}
+
+/*---------------------------------------------------------*\
+| Re-issue the active effect, with that LED's color, on     |
+| every zone whose color changed (Direct rides Static).     |
+| Each zone is one acked transaction on the stream policy:  |
+| a miss marks the zone uncommitted so the next frame       |
+| repaints it, and ends this frame so a device that stopped |
+| answering is not queued three more writes. Caller holds   |
+| the transaction mutex.                                    |
+\*---------------------------------------------------------*/
+void RGBController_LogitechHIDPP20::WriteZoneFrame(const std::vector<RGBColor>& frame)
+{
+    const HIDPP20DeviceCapabilities& caps    = controller->GetCapabilities();
+    const mode&                      current = modes[active_mode];
+
+    /*-----------------------------------------------------*\
+    | Device state is unknown after a reconnect or wake,    |
+    | or before the first frame: send every zone.           |
+    \*-----------------------------------------------------*/
+    uint32_t gen = controller->GetInitGeneration();
+
+    if(gen != last_init_gen || sent_colors.size() != frame.size())
+    {
+        sent_colors.assign(frame.size(), HIDPP20_UNCOMMITTED);
+        last_init_gen = gen;
+    }
+
+    bool          is_direct  = (current.name == "Direct");
+    uint16_t      period     = SpeedSliderToPeriodMs(current.speed);
+    unsigned char brightness = (current.flags & MODE_FLAG_HAS_BRIGHTNESS)
+                             ? (unsigned char)current.brightness
+                             : 100;
+
+    for(size_t i = 0; i < caps.zone_clusters.size() && i < frame.size(); i++)
+    {
+        if(sent_colors[i] == frame[i])
+        {
+            continue;
+        }
+
+        const HIDPP20ZoneCluster& cluster = caps.zone_clusters[i];
+
+        uint8_t  eff_idx = 0;
+        uint16_t eff_id  = 0;
+
+        for(size_t j = 0; j < cluster.effects.size(); j++)
+        {
+            bool match = is_direct ? (cluster.effects[j].effect_id == 0x0001)
+                                   : (cluster.effects[j].index == (uint8_t)current.value);
+
+            if(match)
+            {
+                eff_idx = cluster.effects[j].index;
+                eff_id  = cluster.effects[j].effect_id;
+                break;
+            }
+        }
+
+        if(eff_id == 0)
+        {
+            sent_colors[i] = frame[i];
+            continue;
+        }
+
+        bool acked = controller->SetZoneEffect(cluster.index, eff_idx, eff_id,
+                                               RGBGetRValue(frame[i]),
+                                               RGBGetGValue(frame[i]),
+                                               RGBGetBValue(frame[i]),
+                                               period, brightness, 0, false,
+                                               HIDPP20_POLICY_STREAM);
+
+        if(!acked)
+        {
+            sent_colors[i] = HIDPP20_UNCOMMITTED;
+            break;
+        }
+
+        sent_colors[i] = frame[i];
+    }
+
+    controller->UpgradeSwControlAfterFirstPaint();
 }
 
 /*---------------------------------------------------------*\

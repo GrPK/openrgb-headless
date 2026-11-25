@@ -452,6 +452,7 @@ struct HIDPP20RetryPolicy
     bool            flush_before;   // flush response queue at call start
     bool            retry_on_busy;  // BUSY (0x08) -> retry the send
     const char*     name;           // for logging ("reliable", etc.)
+    bool            skip_offline_tick; // a miss does not count toward offline (stream frames); zero-init false
 };
 
 /*---------------------------------------------------------*\
@@ -563,7 +564,30 @@ static constexpr HIDPP20RetryPolicy HIDPP20_POLICY_RELIABLE = {
     300,    // read window
     true,   // flush_before
     true,   // retry_on_busy
-    "reliable"
+    "reliable",
+    false   // skip_offline_tick
+};
+
+/*---------------------------------------------------------*\
+| Stream policy: live Direct frames on zone-effect devices  |
+| (G560, G810 family). The next frame supersedes a missed   |
+| one, so one quick resend covers a BUSY or a lost report   |
+| and the call gives up in ~220ms worst case instead of     |
+| the ~6s a reliable call spends on a device that stopped   |
+| answering. Holding the sender for seconds there is what   |
+| stalls everything queued behind it.                       |
+\*---------------------------------------------------------*/
+static constexpr uint16_t HIDPP20_BACKOFF_STREAM[] =
+    { 0, 20 };
+
+static constexpr HIDPP20RetryPolicy HIDPP20_POLICY_STREAM = {
+    HIDPP20_BACKOFF_STREAM,
+    sizeof(HIDPP20_BACKOFF_STREAM) / sizeof(uint16_t),
+    100,    // read window
+    true,   // flush_before
+    true,   // retry_on_busy
+    "stream",
+    true    // skip_offline_tick: a busy speaker missing a frame has not left; a removal is seen by the reader
 };
 
 /*---------------------------------------------------------*\
@@ -581,7 +605,8 @@ static constexpr HIDPP20RetryPolicy HIDPP20_POLICY_PROBE = {
     200,    // read window
     true,   // flush_before
     true,   // retry_on_busy
-    "probe"
+    "probe",
+    false   // skip_offline_tick
 };
 
 /*---------------------------------------------------------*\
@@ -595,7 +620,8 @@ static constexpr HIDPP20RetryPolicy HIDPP20_POLICY_FIRST_CONTACT = {
     300,    // read window
     true,   // flush_before
     true,   // retry_on_busy
-    "first-contact"
+    "first-contact",
+    false   // skip_offline_tick
 };
 
 /*---------------------------------------------------------*\
@@ -610,7 +636,8 @@ static constexpr HIDPP20RetryPolicy HIDPP20_POLICY_BLUETOOTH = {
     700,    // read window
     true,   // flush_before
     true,   // retry_on_busy
-    "bluetooth"
+    "bluetooth",
+    false   // skip_offline_tick
 };
 
 /*---------------------------------------------------------*\
@@ -698,7 +725,15 @@ public:
     | sends at the pace the link sustains. The effect       |
     | engine never blocks on the wire.                      |
     \*-----------------------------------------------------*/
-    void SetPerKeyFrameSender(std::function<void(std::vector<RGBColor>&)> fn);
+    /*-----------------------------------------------------*\
+    | min_interval_ms > 0 paces the sender: after a frame   |
+    | it waits that long before taking the next snapshot,   |
+    | so frames submitted meanwhile collapse into the       |
+    | newest one. Used for zone-effect devices, whose       |
+    | firmware takes one zone per acked transaction.        |
+    \*-----------------------------------------------------*/
+    void SetPerKeyFrameSender(std::function<void(std::vector<RGBColor>&)> fn,
+                              uint16_t min_interval_ms = 0);
     void SubmitPerKeyFrame(const std::vector<RGBColor>& frame);
     bool HasPerKeyFrameSender() const;
 
@@ -737,11 +772,18 @@ public:
     /*-----------------------------------------------------*\
     | Zone effects (0x8071 / 0x8070)                        |
     \*-----------------------------------------------------*/
-    void            SetZoneEffect(uint8_t cluster_idx, uint8_t effect_idx,
+    /*-----------------------------------------------------*\
+    | Returns true when the device ACKed the write. Live    |
+    | Direct frames pass HIDPP20_POLICY_STREAM: a frame     |
+    | that misses is superseded by the next one, so it is   |
+    | never retried for seconds.                            |
+    \*-----------------------------------------------------*/
+    bool            SetZoneEffect(uint8_t cluster_idx, uint8_t effect_idx,
                                   uint16_t effect_id,
                                   unsigned char r, unsigned char g, unsigned char b,
                                   uint16_t period, unsigned char brightness,
-                                  unsigned char direction, bool persist);
+                                  unsigned char direction, bool persist,
+                                  const HIDPP20RetryPolicy& policy = HIDPP20_POLICY_RELIABLE);
 
     /*-----------------------------------------------------*\
     | Headset RGB hostmode (0x0620).                        |
@@ -855,6 +897,15 @@ public:
     | frame; recursive because a frame sends.               |
     \*-----------------------------------------------------*/
     std::recursive_mutex&   TransactionMutex()  { return transaction_mutex; }
+
+    /*-----------------------------------------------------*\
+    | Raise the teardown flag ahead of the destructor. The  |
+    | RGB controller joins the power, reader and device     |
+    | threads before it deletes this object, and those      |
+    | joins wait on in-flight retries and backoffs that     |
+    | only bail early once the flag is up.                  |
+    \*-----------------------------------------------------*/
+    void                    BeginTeardown()     { teardown_pending.store(true); }
 
     HIDPP20PowerState GetPowerState() const;
     int             GetDimBrightness() const;
@@ -1349,6 +1400,7 @@ private:
     std::condition_variable pending_frame_cv;
     std::vector<RGBColor>   pending_frame;
     bool                    pending_frame_valid    = false;
+    uint16_t                sender_min_interval_ms = 0;
 
     /*-----------------------------------------------------*\
     | Callbacks                                             |

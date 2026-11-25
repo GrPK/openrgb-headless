@@ -806,8 +806,11 @@ int LogitechHIDPP20Controller::SendAcked
     | threshold of 10 we declare the device gone. Reset to  |
     | 0 happens on any successful call (above), single      |
     | delayed responses don't push us toward offline.       |
+    | Stream frames do not tick: a wired device that only   |
+    | missed frames under load would otherwise be parked    |
+    | offline with nothing to bring it back.                |
     \*-----------------------------------------------------*/
-    if(last_result == 0)
+    if(last_result == 0 && !policy.skip_offline_tick)
     {
         int timeouts = ++consecutive_timeouts;
 
@@ -4838,9 +4841,11 @@ void LogitechHIDPP20Controller::DrainStaleResponses()
 | link sustains and skips the rest. Wire time is            |
 | paid here, never on the animating thread.                 |
 \*---------------------------------------------------------*/
-void LogitechHIDPP20Controller::SetPerKeyFrameSender(std::function<void(std::vector<RGBColor>&)> fn)
+void LogitechHIDPP20Controller::SetPerKeyFrameSender(std::function<void(std::vector<RGBColor>&)> fn,
+                                                     uint16_t min_interval_ms)
 {
-    perkey_frame_fn = fn;
+    perkey_frame_fn        = fn;
+    sender_min_interval_ms = min_interval_ms;
     sender_running.store(true);
     sender_thread = new std::thread(&LogitechHIDPP20Controller::SenderThreadFunc, this);
 }
@@ -4869,12 +4874,28 @@ void LogitechHIDPP20Controller::SubmitPerKeyFrame(const std::vector<RGBColor>& f
 
 void LogitechHIDPP20Controller::SenderThreadFunc()
 {
+    std::chrono::steady_clock::time_point next_frame_at = std::chrono::steady_clock::now();
+
     while(sender_running.load())
     {
         std::vector<RGBColor> frame;
 
         {
             std::unique_lock<std::mutex> lock(pending_frame_mutex);
+
+            /*---------------------------------------------*\
+            | Paced sender: hold off until the interval     |
+            | since the last frame has passed. Snapshots    |
+            | submitted meanwhile replace each other, so    |
+            | the one taken below is the newest.            |
+            \*---------------------------------------------*/
+            if(sender_min_interval_ms > 0)
+            {
+                pending_frame_cv.wait_until(lock, next_frame_at, [this]
+                {
+                    return !sender_running.load();
+                });
+            }
 
             pending_frame_cv.wait(lock, [this]
             {
@@ -4911,6 +4932,9 @@ void LogitechHIDPP20Controller::SenderThreadFunc()
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
+
+        next_frame_at = std::chrono::steady_clock::now()
+                      + std::chrono::milliseconds(sender_min_interval_ms);
 
         if(perkey_frame_fn)
         {
@@ -5896,23 +5920,24 @@ bool LogitechHIDPP20Controller::PerKeyCommit8080(size_t& answered, size_t& rejec
 | Zone effects (0x8071 / 0x8070)                            |
 \*---------------------------------------------------------*/
 
-void LogitechHIDPP20Controller::SetZoneEffect
+bool LogitechHIDPP20Controller::SetZoneEffect
     (
-    uint8_t         cluster_idx,
-    uint8_t         effect_idx,
-    uint16_t        effect_id,
-    unsigned char   r,
-    unsigned char   g,
-    unsigned char   b,
-    uint16_t        period,
-    unsigned char   brightness,
-    unsigned char   direction,
-    bool            persist
+    uint8_t                     cluster_idx,
+    uint8_t                     effect_idx,
+    uint16_t                    effect_id,
+    unsigned char               r,
+    unsigned char               g,
+    unsigned char               b,
+    uint16_t                    period,
+    unsigned char               brightness,
+    unsigned char               direction,
+    bool                        persist,
+    const HIDPP20RetryPolicy&   policy
     )
 {
     if(caps.idx_rgb_effects == 0 || !device_online.load())
     {
-        return;
+        return false;
     }
 
     /*-----------------------------------------------------*\
@@ -6114,8 +6139,10 @@ void LogitechHIDPP20Controller::SetZoneEffect
     data[12] = persist ? 0x01 : 0x00;
 
     blankFAPmessage response;
-    SendAckedIntoFAP(caps.idx_rgb_effects, caps.fn_set_effect,
-                     data, 16, response);
+    int result = SendAckedIntoFAP(caps.idx_rgb_effects, caps.fn_set_effect,
+                                  data, 16, response, policy);
+
+    return result > 0;
 }
 
 /*---------------------------------------------------------*\
