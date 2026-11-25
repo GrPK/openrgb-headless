@@ -86,6 +86,23 @@ void LogitechHIDPP20IdleSettings::load()
     json settings = ResourceManager::get()->GetSettingsManager()->GetSettings(SETTINGS_KEY);
 
     /*-----------------------------------------------------*\
+    | Zone frame pace: read on its own and kept out of the  |
+    | configured test below, so setting only this key does  |
+    | not turn the host-side idle profiles on. Clamped to   |
+    | 20..1000 ms; 0 (absent) keeps the built-in default.   |
+    \*-----------------------------------------------------*/
+    zone_frame_interval_ms = 0;
+
+    if(settings.is_object() && settings.contains("zone_frame_interval_ms")
+       && settings["zone_frame_interval_ms"].is_number_integer())
+    {
+        int v = settings["zone_frame_interval_ms"];
+
+        zone_frame_interval_ms = (v < 20) ? 20 : ((v > 1000) ? 1000 : v);
+        settings.erase("zone_frame_interval_ms");
+    }
+
+    /*-----------------------------------------------------*\
     | Empty / missing key means the plugin is not in use.   |
     | Reset both profiles to defaults with configured=false |
     | so the controller defers to firmware.                 |
@@ -135,6 +152,11 @@ void LogitechHIDPP20IdleSettings::save()
     settings["plugged_in"]      = ProfileToJson(plugged_in);
     settings["force_host_mode"]    = force_host_mode;
     settings["show_unmapped_leds"] = show_unmapped;
+
+    if(zone_frame_interval_ms > 0)
+    {
+        settings["zone_frame_interval_ms"] = zone_frame_interval_ms;
+    }
 
     SettingsManager* mgr = ResourceManager::get()->GetSettingsManager();
     mgr->SetSettings(SETTINGS_KEY, settings);

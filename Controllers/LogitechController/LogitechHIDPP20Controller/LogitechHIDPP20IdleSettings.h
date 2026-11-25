@@ -52,6 +52,15 @@ public:
     bool                               showUnmapped() const { return show_unmapped; }
     void                               setShowUnmapped(bool v);
 
+    /*-----------------------------------------------------*\
+    | Pace of live Direct frames on zone-effect devices     |
+    | (G560, G810 family), "zone_frame_interval_ms".        |
+    | Absent: the built-in default. Read at device init.    |
+    | Does not mark the block configured on its own, so it  |
+    | never switches the host-side idle handling on.        |
+    \*-----------------------------------------------------*/
+    int                                zoneFrameIntervalMs() const { return zone_frame_interval_ms; }
+
     void                               setOnBattery(const LogitechHIDPP20IdleProfile& p);
     void                               setPluggedIn(const LogitechHIDPP20IdleProfile& p);
 
@@ -61,6 +70,7 @@ private:
     bool                       configured = false;
     bool                       force_host_mode = false;
     bool                       show_unmapped = false;
+    int                        zone_frame_interval_ms = 0;  /* 0 = built-in default */
     LogitechHIDPP20IdleProfile on_battery;
     LogitechHIDPP20IdleProfile plugged_in;
 };
